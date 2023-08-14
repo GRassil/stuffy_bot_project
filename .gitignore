@@ -1,0 +1,4 @@
+# Pyre type checker
+.idea/*
+.env
+venv/*
