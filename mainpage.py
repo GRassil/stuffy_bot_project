@@ -1,4 +1,5 @@
 import os
+import random
 import sqlite3
 
 import telebot
@@ -47,8 +48,9 @@ class DB:
 
         # Создание таблицы "exercises"
         cursor.execute('''CREATE TABLE IF NOT EXISTS exercises(
-                            ex_id TEXT PRIMARY KEY NOT NULL UNIQUE,
-                            exam_type TEXT NOT NULL,                      
+                            ex_id auto_increment TEXT PRIMARY KEY NOT NULL UNIQUE,
+                            exam_type TEXT NOT NULL,
+                            number_of_ex_in_test INTEGER NOT NULL,                      
                             right_answer TEXT NOT NULL,
                             total_attempts INTEGER,
                             right_attempts INTEGER);''')
@@ -78,11 +80,11 @@ class DB:
     # Общий метод для взятия данных с БД.
     # Запрашивает 1 аргумент:
     # request - SQL запрос
-    def select_info(self, request):
+    def select_info(self, request, values):
         connection = sqlite3.connect(self.filename)
         cursor = connection.cursor()
         try:
-            cursor.execute(request)
+            cursor.execute(request, values)
             return cursor.fetchall()
         except sqlite3.Error as error:
             print(error)
@@ -143,10 +145,14 @@ class DB:
 
 
 class Exercise:
-    def __init__(self):
-        self.photo_id = None
-        self.right_answer = None
-        self.exam_type = None
+    def __init__(self, photo_id=None, right_answer=None, exam_type=None, number_of_ex_in_test=None,
+                 total_attempts=0, right_attempts=0):
+        self.photo_id = photo_id
+        self.right_answer = right_answer
+        self.exam_type = exam_type
+        self.number_of_ex_in_test = number_of_ex_in_test
+        self.total_attempts = total_attempts
+        self.right_attempts = right_attempts
 
 
 load_dotenv()
@@ -160,6 +166,8 @@ db = DB('data.db')
 user = User()
 exercise = Exercise()
 
+def on_starting():
+    bot.send_message(chat_id=int(os.getenv('HELP_CHAT')),text='БОТ ЗАПУЩЕН')
 
 # Обработчик при команде '/start'
 @bot.message_handler(commands=['start'])
@@ -253,7 +261,7 @@ def check_callback_data(callback):
 
         # Меню заданий
         elif callback.data == 'do exercises':
-            pass
+            do_exercises_select_number(callback.message)
 
         # Меню тестов
         elif callback.data == 'do test':
@@ -293,12 +301,18 @@ def add_exercise_type(message):
 
 def add_exercise_answer(message):
     exercise.exam_type = message.text
-    sent = bot.send_message(message.chat.id, 'Какой ответ на задачу?')
+    sent = bot.send_message(message.chat.id, 'Какой ответ на задачу?', reply_markup=types.ReplyKeyboardRemove())
+    bot.register_next_step_handler(sent, add_exercise_number_in_test)
+
+
+def add_exercise_number_in_test(message):
+    exercise.right_answer = message.text
+    sent = bot.send_message(message.chat.id, 'Какому номеру в тесте соответствует это задание')
     bot.register_next_step_handler(sent, add_exercise_ph)
 
 
 def add_exercise_ph(message):
-    exercise.right_answer = message.text
+    exercise.number_of_ex_in_test = message.text
     sent = bot.send_message(message.chat.id, 'Пришлите фотографию')
     bot.register_next_step_handler(sent, add_exercise_finish)
 
@@ -306,8 +320,8 @@ def add_exercise_ph(message):
 def add_exercise_finish(message):
     try:
         exercise.photo_id = message.photo[0].file_id
-        db.add_info('''INSERT INTO exercises(ex_id, exam_type, right_answer) VALUES (?,?,?)''',
-                    (exercise.photo_id, exercise.exam_type, exercise.right_answer))
+        db.add_info('''INSERT INTO exercises(ex_id, exam_type, right_answer, number_of_ex_in_test) VALUES (?,?,?,?)''',
+                    (exercise.photo_id, exercise.exam_type, exercise.right_answer, exercise.number_of_ex_in_test))
         kb = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton('В меню', callback_data='menu')
         btn2 = types.InlineKeyboardButton('Добавить задание', callback_data='new exercise')
@@ -374,8 +388,8 @@ def select_course(message):  # Регистрация курса
 
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
     btn1 = types.KeyboardButton(text='ОГЭ')
-    btn2 = types.KeyboardButton(text='ЕГЭ профиль')
-    btn3 = types.KeyboardButton(text='ЕГЭ база')
+    btn2 = types.KeyboardButton(text='ПРОФИЛЬ')
+    btn3 = types.KeyboardButton(text='БАЗА')
     kb.add(btn1, btn2, btn3)
     sent = bot.send_message(message.chat.id, 'Что сдаёшь?', reply_markup=kb)
     bot.register_next_step_handler(sent, finish_registration)
@@ -407,7 +421,7 @@ def finish_registration(message):  # Проверка в группах учен
     # Окончание регистрации
 
 
-# МЕНЮ
+# МЕНЮ для школьников
 def menu(message):
     # Создание объекта класса User с данными из БД по первичному ключу - telegram id
     user = db.select_info_about_user(message.chat.id)
@@ -441,7 +455,7 @@ def menu(message):
                               message_id=message.message_id,
                               reply_markup=kb)
     except:
-        bot.send_message(message.from_user.id, f'Что сделаем, {user.name}?', reply_markup=kb)
+        bot.send_message(message.chat.id, f'Что сделаем, {user.name}?', reply_markup=kb)
 
 
 # Вывод профиля пользователя
@@ -478,6 +492,44 @@ def profile(message):
                           chat_id=message.chat.id,
                           message_id=message.message_id,
                           reply_markup=kb)
+
+
+# Решить задания
+def do_exercises_select_number(message):
+    # Создание объекта класса User
+    user = db.select_info_about_user(message.chat.id)
+
+    sent = bot.send_message(message.chat.id,
+                            f'Экзамен: {user.exam}\nКакой номер задания хочешь поботать? Пришли номер задания')
+    bot.register_next_step_handler(sent, do_exercises_get_ex)
+
+
+def do_exercises_get_ex(message):
+    global exercise
+    kb = types.InlineKeyboardMarkup()
+    btn1 = types.InlineKeyboardButton(text='В меню', callback_data='menu')
+    btn2 = types.InlineKeyboardButton(text='Ещё', callback_data='do exercises')
+    kb.add(btn1,btn2)
+    # Создание объекта класса User
+    user = db.select_info_about_user(message.chat.id)
+    exercise.number_of_ex_in_test=message.text
+    try:
+        ex_list = db.select_info(
+            f'SELECT * FROM exercises WHERE exam_type = ? AND number_of_ex_in_test = ?',
+            [user.exam, exercise.number_of_ex_in_test])
+        print(ex_list)
+        random.shuffle(ex_list)
+        i = random.randint(0,len(ex_list)-1)
+        print(i)
+        exercise.photo_id = ex_list[i][0]
+        exercise.exam_type = ex_list[i][1]
+        exercise.right_answer = ex_list[i][3]
+
+        bot.send_photo(chat_id=message.chat.id, photo=exercise.photo_id,
+                       caption=f'Ответ: <tg-spoiler>{exercise.right_answer}</tg-spoiler>', parse_mode='HTML',reply_markup=kb)
+    except Exception as e:
+        print(e)
+        bot.send_message(message.chat.id, 'Заданий этого типа у меня ещё нет')
 
 
 # Функция "Написать в техподдержку"
@@ -549,7 +601,6 @@ def message_to_teacher_2(message):
                      text=f'Обращение от @{message.from_user.username}:\n{message.text}')
 
 
-
 # Эхо на всякий случай
 @bot.message_handler(chat_types=['private'])
 def echo(message):
@@ -560,4 +611,5 @@ def echo(message):
 
 if __name__ == '__main__':
     # Зацикливание бота
+    on_starting()
     bot.polling()
