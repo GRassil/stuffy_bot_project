@@ -34,20 +34,26 @@ class DB:
         cursor = db.cursor()
         # Создание таблицы "users"
         cursor.execute('''CREATE TABLE IF NOT EXISTS users(
-                            tg_user_id     INTEGER PRIMARY KEY
-                                                   UNIQUE
-                                                   NOT NULL,
-                            name           TEXT,
-                            lastname       TEXT,
-                            exam           TEXT,
-                            if_get_course  INTEGER,
-                            total ex     INTEGER DEFAULT (0),
-                            correct ex   INTEGER DEFAULT (0),
-                            total tests  INTEGER DEFAULT (0),
-                            total points INTEGER DEFAULT (0),
-                            most points  INTEGER DEFAULT (0))''')
+                            tg_user_id INTEGER PRIMARY KEY UNIQUE NOT NULL,
+                            name TEXT,
+                            lastname TEXT,
+                            exam TEXT,
+                            if_get_course INTEGER,
+                            total_ex INTEGER DEFAULT (0),
+                            correct_ex INTEGER DEFAULT (0),
+                            total_tests INTEGER DEFAULT (0),
+                            total_points INTEGER DEFAULT (0),
+                            most_points INTEGER DEFAULT (0))''')
 
-        # Надо ешё создать таблицы с ДЗ, Банком задач, Банком Вариантов и тд
+        # Создание таблицы "exercises"
+        cursor.execute('''CREATE TABLE IF NOT EXISTS exercises(
+                            ex_id TEXT PRIMARY KEY NOT NULL UNIQUE,
+                            exam_type TEXT NOT NULL,                      
+                            right_answer TEXT NOT NULL,
+                            total_attempts INTEGER,
+                            right_attempts INTEGER);''')
+
+        # Надо ешё создать таблицы с ДЗ, Банком Вариантов и тд
         cursor.close()
         db.close()
 
@@ -152,6 +158,7 @@ if_admin = lambda message: str(message.chat.id) in os.getenv('ADMINS').split(sep
 # Создание объектов классов DB, User
 db = DB('data.db')
 user = User()
+exercise = Exercise()
 
 
 # Обработчик при команде '/start'
@@ -175,61 +182,144 @@ def start(message):
                                       \n Давай подпишемся на канал неДУШНАЯ математика и продолжим регистрацию''',
                          reply_markup=kb)
     else:
-        if if_admin:
+        if if_admin(message):
             teacher_menu(message)
         else:
             menu(message)
 
 
-# Обработка callback-запросов для админов
-@bot.callback_query_handler(func=lambda callback: callback.data and if_admin(callback.message))
+@bot.callback_query_handler(func=lambda callback: callback.data)
 def check_callback_data(callback):
-    # Меню добавления упражнения
-    if callback.data == 'new exercise':
-        add_exercise_type(callback.message)
+    # Обработка callback-запросов для админов
+    if if_admin(callback.message):
+        # Меню добавления упражнения
+        if callback.data == 'new exercise':
+            add_exercise_type(callback.message)
 
-    # Меню проверки упражнений
-    elif callback.data == 'check exercises':
-        pass
+        # Меню проверки упражнений
+        elif callback.data == 'check exercises':
+            pass
 
-    # Меню добавления варианта
-    elif callback.data == 'new test':
-        pass
+        # Меню добавления варианта
+        elif callback.data == 'new test':
+            pass
 
-    # Меню проверки варианта
-    elif callback.data == 'check test':
-        pass
+        # Меню проверки варианта
+        elif callback.data == 'check test':
+            pass
 
-    # Меню добавления домашнего задания
-    elif callback.data == 'new homework':
-        pass
+        # Меню добавления домашнего задания
+        elif callback.data == 'new homework':
+            pass
 
-    # Меню проверки ДЗ
-    elif callback.data == 'check homework':
-        pass
+        # Меню проверки ДЗ
+        elif callback.data == 'check homework':
+            pass
 
-    # Меню статистики учеников
-    elif callback.data == 'students` statistic':
-        students_statistic(callback.message)
+        # Меню статистики учеников
+        elif callback.data == 'students` statistic':
+            students_statistic(callback.message)
 
-    elif callback.data == 'menu':
-        teacher_menu(callback.message)
+        elif callback.data == 'menu':
+            teacher_menu(callback.message)
+    # Обработчик запросов от нажатий кнопок обычных учеников
+    else:
+        # Регистрация
+        if callback.data == 'registration':
+            # Проверка подписки на основной канал
+            try:
+                if_member = bot.get_chat_member(chat_id='@dushnilamath', user_id=callback.message.chat.id)
+                start_registration(callback.message)
+            except Exception as error:  # Если не подписан, регистрация не начинается
+                kb = types.InlineKeyboardMarkup()
+                btn1 = types.InlineKeyboardButton(text='Подписаться', url='https://t.me/dushnilamath')
+                btn2 = types.InlineKeyboardButton(text='Регистрация', callback_data='registration')
+                kb.add(btn1, btn2)
+                try:
+                    bot.edit_message_text(f'Подпишись пж {error}',
+                                          callback.message.chat.id,
+                                          callback.message.message_id,
+                                          reply_markup=kb)
+                except:
+                    pass
 
-#СДЕЛААААТЬ
+        # Меню
+        elif callback.data == 'menu':
+            menu(callback.message)
+
+        # Профиль пользователя
+        elif callback.data == 'profile':
+            profile(callback.message)
+
+        # Меню заданий
+        elif callback.data == 'do exercises':
+            pass
+
+        # Меню тестов
+        elif callback.data == 'do test':
+            pass
+
+        # Меню дз
+        elif callback.data == 'homework':
+            pass
+
+        # Меню обратиться преподу
+        elif callback.data == 'chat with teacher':
+            message_to_teacher(callback.message)
+
+        # Меню с теорией
+        elif callback.data == 'theory':
+            pass
+
+        # Меню "Обратиться в техподдержку"
+        elif callback.data == 'SOS':
+            sos(callback.message)
+
+
+# СДЕЛААААТЬ
 def add_exercise_type(message):
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton('ПРОФИЛЬ')
-    btn2 = types.KeyboardButton('БАЗА')
-    btn3 = types.KeyboardButton('ОГЭ')
-    kb.add(btn1,btn2,btn3)
-    sent = bot.send_message(message.chat.id,'Задача для какого экзамена?',reply_markup=kb)
-    bot.register_next_step_handler(sent,add_exercise_answer)
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        btn1 = types.KeyboardButton('ПРОФИЛЬ')
+        btn2 = types.KeyboardButton('БАЗА')
+        btn3 = types.KeyboardButton('ОГЭ')
+        kb.add(btn1, btn2, btn3)
+        sent = bot.send_message(message.chat.id, 'Задача для какого экзамена?', reply_markup=kb)
+        bot.register_next_step_handler(sent, add_exercise_answer)
+    except:
+        pass
+
 
 def add_exercise_answer(message):
-    exercise = Exercise()
     exercise.exam_type = message.text
-    bot.send_message(message.chat.id, message)
+    sent = bot.send_message(message.chat.id, 'Какой ответ на задачу?')
+    bot.register_next_step_handler(sent, add_exercise_ph)
 
+
+def add_exercise_ph(message):
+    exercise.right_answer = message.text
+    sent = bot.send_message(message.chat.id, 'Пришлите фотографию')
+    bot.register_next_step_handler(sent, add_exercise_finish)
+
+
+def add_exercise_finish(message):
+    try:
+        exercise.photo_id = message.photo[0].file_id
+        db.add_info('''INSERT INTO exercises(ex_id, exam_type, right_answer) VALUES (?,?,?)''',
+                    (exercise.photo_id, exercise.exam_type, exercise.right_answer))
+        kb = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton('В меню', callback_data='menu')
+        btn2 = types.InlineKeyboardButton('Добавить задание', callback_data='new exercise')
+        kb.add(btn1, btn2)
+        bot.send_photo(message.chat.id, exercise.photo_id,
+                       f'УСПЕШНО ДОБАВЛЕНО \nЭкзамен: {exercise.exam_type} \nОтвет: {exercise.right_answer}',
+                       reply_markup=kb)
+    except:
+        bot.delete_message(message.chat.id, message.id)
+        bot.delete_message(message.chat.id, message.message_id - 1)
+        sent = bot.send_message(message.chat.id, 'Отправьте фотографию пж')
+        bot.register_next_step_handler(sent, add_exercise_finish)
 
 
 # Отправка статистики по всем ученикам в виде excel таблицы
@@ -265,62 +355,7 @@ def teacher_menu(message):
                               message_id=message.message_id,
                               reply_markup=kb)
     except:
-        bot.send_message(message.from_user.id, f'Что сделаем?', reply_markup=kb)
-
-
-# Обработчик запросов от нажатий кнопок обычных учеников
-@bot.callback_query_handler(func=lambda callback: callback.data)
-def check_callback_data(callback):
-    # Регистрация
-    if callback.data == 'registration':
-        # Проверка подписки на основной канал
-        try:
-            if_member = bot.get_chat_member(chat_id='@dushnilamath', user_id=callback.message.chat.id)
-            start_registration(callback.message)
-        except Exception as error:  # Если не подписан, регистрация не начинается
-            kb = types.InlineKeyboardMarkup()
-            btn1 = types.InlineKeyboardButton(text='Подписаться', url='https://t.me/dushnilamath')
-            btn2 = types.InlineKeyboardButton(text='Регистрация', callback_data='registration')
-            kb.add(btn1, btn2)
-            try:
-                bot.edit_message_text(f'Подпишись пж {error}',
-                                      callback.message.chat.id,
-                                      callback.message.message_id,
-                                      reply_markup=kb)
-            except:
-                pass
-
-    # Меню
-    elif callback.data == 'menu':
-        menu(callback.message)
-
-    # Профиль пользователя
-    elif callback.data == 'profile':
-        profile(callback.message)
-
-    # Меню заданий
-    elif callback.data == 'do exercises':
-        pass
-
-    # Меню тестов
-    elif callback.data == 'do test':
-        pass
-
-    # Меню дз
-    elif callback.data == 'homework':
-        pass
-
-    # Меню обратиться преподу
-    elif callback.data == 'chat with teacher':
-        message_to_teacher(callback.message)
-
-    # Меню с теорией
-    elif callback.data == 'theory':
-        pass
-
-    # Меню "Обратиться в техподдержку"
-    elif callback.data == 'SOS':
-        sos(callback.message)
+        bot.send_message(message.chat.id, f'Что сделаем?', reply_markup=kb)
 
 
 # РЕГИСТРАЦИЯ
@@ -351,8 +386,8 @@ def finish_registration(message):  # Проверка в группах учен
     user.exam = message.text
 
     try:
-        is_member = bot.get_chat_member(chat_id=-925122238, user_id=user.telegram_id)
-        user.if_get_course = 1
+        if bot.get_chat_member(chat_id=-925122238, user_id=user.telegram_id):
+            user.if_get_course = 1
     except:
         user.if_get_course = 0
     finally:
@@ -370,7 +405,6 @@ def finish_registration(message):  # Проверка в группах учен
                      text='Перейдём в меню?',
                      reply_markup=kb)
     # Окончание регистрации
-
 
 
 # МЕНЮ
@@ -457,7 +491,7 @@ def sos(message):
         '''Что-то случилось? Опиши проблему максимально как можешь.
         <tg-spoiler> Мы не помогаем в решении задач и вариантов</tg-spoiler>''',
         chat_id=message.chat.id,
-        message_id=message.id,
+        message_id=message.message_id,
         parse_mode='HTML',
         reply_markup=kb)
 
@@ -492,7 +526,7 @@ def message_to_teacher(message):
         (Даже если тебе кажется, что это неверно)
         <tg-spoiler>А можешь просто похвалить за хорошую работу)</tg-spoiler>''',
         chat_id=message.chat.id,
-        message_id=message.id,
+        message_id=message.message_id,
         parse_mode='HTML',
         reply_markup=kb)
 
@@ -515,12 +549,13 @@ def message_to_teacher_2(message):
                      text=f'Обращение от @{message.from_user.username}:\n{message.text}')
 
 
+
 # Эхо на всякий случай
-@bot.message_handler()
+@bot.message_handler(chat_types=['private'])
 def echo(message):
     bot.send_message(message.chat.id, 'Я вас не понимаю, попробуйте использовать кнопки')
-    bot.delete_message(message.chat.id, message.id)
-    bot.delete_message(message.chat.id, message.id + 1)
+    bot.delete_message(message.chat.id, message.message_id)
+    bot.delete_message(message.chat.id, message.message_id + 1)
 
 
 if __name__ == '__main__':
