@@ -180,7 +180,7 @@ def start(message):
     global user
     user = db.select_info_about_user(message.from_user.id)
 
-    if user.name == None:
+    if user.name == None and not if_admin(message):
         # Создание кнопок и добавление в клавиатуру
         btn1 = types.InlineKeyboardButton(text='Подписаться', url='https://t.me/dushnilamath')
         btn2 = types.InlineKeyboardButton(text='Регистрация', callback_data='registration')
