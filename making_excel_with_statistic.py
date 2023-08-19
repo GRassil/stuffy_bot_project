@@ -1,23 +1,41 @@
 from openpyxl import Workbook
 
-def make_excel(list):
+from models import *
+
+
+def make_excel():
     wb = Workbook()
     ws1 = wb.active
-    ws1.title ='ОГЭ'
-    ws2 = wb.create_sheet('Профиль')
-    ws3 = wb.create_sheet('База')
+    ws1.title = 'ОГЭ'
+    ws2 = wb.create_sheet('ПРОФИЛЬ')
+    ws3 = wb.create_sheet('БАЗА')
 
     for ws in wb.sheetnames:
-        wb[ws].append(["Имя", "Фамилия", "Процент решённых задач", "Всего правильно решённых задач", "Всего решено задач", "Всего решено вариантов", "Средний бал", "Максимальный бал"])
+        wb[ws].append(["Имя", "Фамилия",
+                       "Всего решено задач", "Всего правильно решённых задач", "Процент решённых задач",
+                       "Всего решено вариантов", "Средний бал", "Максимальный бал"])
 
-    for i in list:
-        data = i[1:3] + i[5:]
-        data.insert(2, (i[5]/i[6])*100 if i[6] != 0 else 0)
-        data[6] = data[6] / data[5] if data[5] != 0 else 0
-        if i[3] == 'ОГЭ' and i[4] >0:
-            ws1.append(data)
-        elif i[3] == 'ЕГЭ профиль' and i[4] >0:
-            ws2.append(data)
-        elif i[3] == 'ЕГЭ база' and i[4] >0:
-            ws3.append(data)
+    with conn:
+        try:
+            for user in User.select():
+                examtype = ExamType.get(ExamType.exam_type == user.exam_type)
+                data = {
+                    "A": user.name,
+                    "B": user.lastname,
+                    "C": user.total_ex,
+                    "D": user.correct_ex,
+                    "E": round((int (user.correct_ex) / int(user.total_ex)) * 100,2) if int(user.total_ex) != 0 else 0,
+                    "F": user.total_tests,
+                    "G": round(int(user.total_points) / (int(user.total_tests) * int(examtype.max_points)),2) if int(user.total_tests) != 0 else 0,
+                    "H": user.max_points_per_test
+                }
+                if user.if_get_course != '0':
+                    if user.exam_type_id == 'ОГЭ':
+                        ws1.append(data)
+                    elif user.exam_type_id == 'ПРОФИЛЬ':
+                        ws2.append(data)
+                    elif user.exam_type_id == 'БАЗА':
+                        ws3.append(data)
+        except Exception as e:
+            print(e)
     wb.save('statistic.xlsx')
