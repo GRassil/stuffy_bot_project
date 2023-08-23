@@ -1,8 +1,8 @@
 import os
-import random
 
 import telebot
 from dotenv import load_dotenv
+from loguru import logger
 from telebot import types
 
 from making_excel_with_statistic import make_excel
@@ -14,157 +14,167 @@ bot = telebot.TeleBot(os.getenv("TOKEN"))
 
 # Надо добить эту проверку на админов (bool)
 def is_admin(message: types.Message) -> bool:
-    return str(message.chat.id) in os.getenv("ADMINS").split(sep=",")
+    b = str(message.chat.id) in os.getenv("ADMINS").split(sep=",")
+    logger.info(f"is admin checking: {b}")
+    return b
 
 
 def on_starting():
     """Уведомляет админов, что бот начал работу"""
     bot.send_message(chat_id=306383679, text="БОТ ЗАПУЩЕН /start")
-
-
-@bot.message_handler(chat_types=["group", "supergroup", "channel"])
-def do_nothing(message: types.Message):
-    """Игнорирует команды в группах и каналах"""
-    print('group ',message)
+    logger.info(f"___СТАРТ___")
 
 
 # Обработчик при команде '/start'
 @bot.message_handler(commands=["start"])
 def start(message: types.Message):
     """Стартовый обработчик"""
-
     # Создание клавиатуры
     kb = types.InlineKeyboardMarkup()
 
     # Создание объекта класса User
-    user, created = User.get_or_create(
-        user_id=message.chat.id, defaults={"user_id": message.chat.id}
-    )
+    user, created = User.get_or_create(user_id=message.chat.id, defaults={"user_id": message.chat.id})
+
+    # Если админ
+    if is_admin(message):
+        logger.info('Написал админ')
+        teacher_menu(message)
 
     # Если новый пользователь
-    if not is_admin(message) and not user.name:
+    elif not user.name:
+        logger.info(f'Написал новый пользователь {message.from_user.username}')
+
         # Создание кнопок и добавление в клавиатуру
-        btn1 = types.InlineKeyboardButton(
-            text="Подписаться", url="https://t.me/dushnilamath"
-        )
-        btn2 = types.InlineKeyboardButton(
-            text="Регистрация", callback_data="registration"
-        )
+        btn1 = types.InlineKeyboardButton(text="Подписаться", url="https://t.me/dushnilamath")
+        btn2 = types.InlineKeyboardButton(text="Регистрация", callback_data="registration")
         kb.add(btn1, btn2)
+
         # Отправка сообщения
         bot.send_message(
             message.chat.id,
             text="""Привет, я тот самый бот душнила, помогу тебе сдать экзамен на максимум!
                                       \n Давай подпишемся на канал неДУШНАЯ математика и продолжим регистрацию""",
-            reply_markup=kb,
-        )
-    # Если уже зарегистрирован или админ
+            reply_markup=kb)
+
+    # Если уже зарегистрирован
     else:
-        if is_admin(message):
-            teacher_menu(message)
-        else:
-            student_menu(message)
+        logger.info(f'Написал пользователь {message.from_user.username}')
+        student_menu(message)
 
 
 @bot.callback_query_handler(func=lambda callback: callback.data)
 def check_callback_data(callback: types.CallbackQuery):
     """Обработчик callback-запросов"""
-
     # Очистка контекста, чтобы бот не регистрировал новые сообщения от пользователя, когда они не нужны.
     bot.clear_step_handler_by_chat_id(chat_id=callback.message.chat.id)
-    try:
-        # Обработка callback-запросов для админов
-        if is_admin(callback.message):
+
+    logger.info(callback.data)
+
+    # Обработка callback-запросов для админов
+    if is_admin(callback.message):
+        match callback.data:
             # Меню добавления упражнения
-            if callback.data == "new exercise":
+            case "new exercise":
                 add_exercise(callback.message)
 
             # Меню проверки упражнений
-            elif callback.data == "check exercises":
+            case "check exercises":
                 no_function(callback)
 
             # Меню добавления варианта
-            elif callback.data == "new test":
+            case "new test":
                 add_test(callback.message)
 
             # Меню проверки варианта
-            elif callback.data == "check test":
+            case "check test":
                 no_function(callback)
 
             # Меню добавления домашнего задания
-            elif callback.data == "new homework":
-                no_function(callback)
+            case "new homework":
+                add_homework(callback.message)
 
             # Меню проверки ДЗ
-            elif callback.data == "check homework":
+            case "check homework":
                 no_function(callback)
 
             # Меню статистики учеников
-            elif callback.data == "students` statistic":
+            case "students` statistic":
                 students_statistic(callback.message)
 
             # Меню для учителя
-            elif callback.data == "menu":
+            case "menu":
                 teacher_menu(callback.message)
 
-            elif callback.data.startswith("teacher answer"):
-                user_id = int(callback.data.split(" ")[2])
-                answer(callback.message, "Препода", user_id)
+            # Меню ответов ученикам
+            case _:
 
-            elif callback.data.startswith("support answer"):
-                user_id = int(callback.data.split(" ")[2])
-                answer(callback.message, "техподдержки", user_id)
+                match callback.data.split()[0]:
 
-        # Обработчик запросов от нажатий кнопок обычных учеников
-        else:
-            # Создание объекта класса User с данными из БД по первичному ключу - user id
-            with conn:
-                user = User.get_or_none(User.user_id == callback.message.chat.id)
-            if not user:
-                bot.send_message(
-                    callback.message.chat.id,
-                    "Ой, я тебя чуток забыл, айда познакомимся снова",
-                )
-                start(callback.message)
-            else:
-                # Регистрация
-                if callback.data == "registration":
-                    registration(callback.message)
+                    # Ответ от учителя
+                    case 'teacher':
+                        user_id = int(callback.data.split()[2])
+                        answer(callback.message, "Препода", user_id)
 
-                # Меню
-                elif callback.data == "menu":
-                    student_menu(callback.message)
+                    # Ответ от техподдержки
+                    case "support":
+                        user_id = int(callback.data.split()[2])
+                        answer(callback.message, "техподдержки", user_id)
 
-                # Профиль пользователя
-                elif callback.data == "profile":
-                    profile(callback.message)
+    # Обработчик запросов от нажатий кнопок обычных учеников
+    else:
+        with conn:
+            user = User.get_or_none(User.user_id == callback.message.chat.id)
+            # Возвращает данные о пользователе или None, если записи нет
+        if not user:  # Если записи нет -> регистрация
+            bot.send_message(
+                chat_id=callback.message.chat.id,
+                text="Ой, я тебя чуток забыл, айда познакомимся снова")
+            start(callback.message)
+        # Регистрация
+        match callback.data:
+            case "registration":
+                registration(callback.message)
 
-                # Меню заданий
-                elif callback.data == "do exercises":
-                    exercise_menu(callback.message)
+            # Меню
+            case "menu":
+                student_menu(callback.message)
 
-                # Меню тестов
-                elif callback.data == "test":
-                    test_menu(callback.message)
+            # Профиль пользователя
+            case "profile":
+                profile(callback.message)
 
-                # Меню дз
-                elif callback.data == "homework":
-                    no_function(callback)
+            # Меню заданий
+            case "do exercises":
+                exercise_menu(callback.message)
 
-                # Меню обратиться преподу
-                elif callback.data == "chat with teacher":
-                    message_admin_menu(callback.message,"teacher")
+            # Меню тестов
+            case "test":
+                test_menu(callback.message, page=1)
 
-                # Меню "Обратиться в техподдержку"
-                elif callback.data == "SOS":
-                    message_admin_menu(callback.message,"support")
-                # Меню с теорией
-                elif callback.data == "theory":
-                    no_function(callback)
+            # Меню дз
+            case "homework":
+                no_function(callback)
 
-    except Exception as e:
-        print("Check_callback_data: ", e)
-        no_function(callback)
+            # Меню обратиться преподу
+            case "chat with teacher":
+                message_admin_menu(callback.message, "teacher")
+
+            # Меню "Обратиться в техподдержку"
+            case "SOS":
+                message_admin_menu(callback.message, "support")
+            # Меню с теорией
+            case "theory":
+                no_function(callback)
+
+            case _:
+                match callback.data.split()[0]:
+                    case 'exercise':
+                        page = int(callback.data.split()[2])
+                        num = int(callback.data.split()[1])
+                        exercise_menu(callback.message, page=page, num=num)
+                    case 'test':
+                        page = int(callback.data.split()[2])
+                        test_menu(callback.message, page=page)
 
 
 """Часть для учителя и админов"""
@@ -172,6 +182,9 @@ def check_callback_data(callback: types.CallbackQuery):
 
 # Меню для учителя
 def teacher_menu(message: types.Message):
+    logger.debug('Вызов меню учителя')
+    logger.info(message.json)
+
     kb = types.InlineKeyboardMarkup()
     # Создание кнопок
     btn1 = types.InlineKeyboardButton("Добавить задания", callback_data="new exercise")
@@ -273,6 +286,82 @@ def add_exercise(message: types.Message):
     add_exercise_type(message)
 
 
+# Добавление домашки в банк
+def add_homework(message: types.Message):
+    homework = Homework()
+
+    def add_homework_exam(message: types.Message):
+        try:
+            kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            btn1 = types.KeyboardButton("ПРОФИЛЬ")
+            btn2 = types.KeyboardButton("БАЗА")
+            btn3 = types.KeyboardButton("ОГЭ")
+            kb.add(btn1, btn2, btn3)
+            sent = bot.send_message(
+                message.chat.id, "Задача для какого экзамена?", reply_markup=kb
+            )
+            bot.register_next_step_handler(sent, add_homework_type)
+        except:
+            pass
+
+    def add_homework_type(message: types.Message):
+        nonlocal homework
+        homework.exam_type = message.text
+        try:
+            kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            btn1 = types.KeyboardButton("1")
+            btn2 = types.KeyboardButton("2")
+            kb.add(btn1, btn2)
+            sent = bot.send_message(
+                message.chat.id, "Задача из какой части экзамена?", reply_markup=kb
+            )
+            bot.register_next_step_handler(sent, add_homework_answer)
+        except:
+            pass
+
+    def add_homework_answer(message: types.Message):
+        nonlocal homework
+        homework.hw_type = int(message.text)
+        sent = bot.send_message(
+            message.chat.id,
+            "Какой ответ на задачу?",
+            reply_markup=types.ReplyKeyboardRemove(),
+        )
+        bot.register_next_step_handler(sent, add_homework_ph)
+
+    def add_homework_ph(message: types.Message):
+        nonlocal homework
+        homework.right_answer = message.text if homework.hw_type == 1 else None
+        sent = bot.send_message(message.chat.id, "Пришлите фотографию задания")
+        bot.register_next_step_handler(sent, add_homework_finish)
+
+    def add_homework_finish(message: types.Message):
+        nonlocal homework
+        try:
+            homework.file_id = message.photo[0].file_id
+            with conn:
+                homework.save()
+            kb = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
+            btn2 = types.InlineKeyboardButton(
+                "Добавить задание", callback_data="new homework"
+            )
+            kb.add(btn1, btn2)
+            bot.send_photo(
+                message.chat.id,
+                homework.file_id,
+                f"УСПЕШНО ДОБАВЛЕНО \nЭкзамен: {homework.exam_type} \nОтвет: {homework.right_answer}",
+                reply_markup=kb,
+            )
+        except Exception as e:
+            print('add hw finish', e)
+            sent = bot.send_message(message.chat.id, "Отправьте фотографию пж")
+            bot.register_next_step_handler(sent, add_homework_finish)
+        # Финиш
+
+    add_homework_exam(message)
+
+
 # Добавление варианта в Банк
 def add_test(message: types.Message):
     test = Test()
@@ -296,7 +385,7 @@ def add_test(message: types.Message):
         test.exam_type = message.text
         sent = bot.send_message(
             message.chat.id,
-            "Отправьте ответы на 1 часть с пробелом как разделителем",
+            "Отправьте ответы на 1 часть (1 номер = 1 строка)",
             reply_markup=types.ReplyKeyboardRemove(),
         )
         bot.register_next_step_handler(sent, add_test_file)
@@ -353,19 +442,36 @@ def students_statistic(message: types.Message):
 
 def answer(message: types.Message, answer_from: str, user_id: int):
     def get_answer(message: types.Message):
-        sent = bot.send_message(
-            chat_id=message.chat.id, text="Введите ответное сообщение"
-        )
-        bot.register_next_step_handler(sent, send_answer)
+        logger.info('принято', message.json)
+        sent = bot.send_message(chat_id=message.chat.id, text="Введите ответное сообщение")
+        bot.register_next_step_handler_by_chat_id(message.chat.id, is_valid_message)
+
+    def is_valid_message(message: types.Message):
+        logger.info(message.text)
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True,
+                                       one_time_keyboard=True)
+        btn1 = types.KeyboardButton(text='✅')
+        btn2 = types.KeyboardButton(text='❎')
+        kb.add(btn1, btn2)
+        bot.copy_message(chat_id=message.chat.id,
+                         from_chat_id=message.chat.id,
+                         message_id=message.message_id,
+                         reply_markup=kb)
+        bot.register_next_step_handler_by_chat_id(message.chat.id, send_answer)
+
     def send_answer(message: types.Message):
-        print(message)
-        bot.send_message(chat_id=message.chat.id, text="Принял понял")
+        logger.info(message.text)
+        match message.text:
+            case '✅':
+                bot.send_message(chat_id=message.chat.id, text="Принял понял")
+                bot.send_message(chat_id=user_id, text=f"Ответ от {answer_from}")
+                bot.copy_message(chat_id=user_id,
+                                 from_chat_id=message.chat.id,
+                                 message_id=message.message_id - 1)
+            case _:
+                get_answer(message)
 
-        bot.send_message(
-            chat_id=user_id, text=f"Ответ от {answer_from}:\n{message.text}"
-        )
-        kb = types.InlineKeyboardMarkup()
-
+    logger.info('ВХОД', message.json)
     get_answer(message)
 
 
@@ -387,7 +493,7 @@ def registration(message: types.Message):
         except:
             user.name = message.text
             user.lastname = "-"
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1, one_time_keyboard=True)
         btn1 = types.KeyboardButton(text="ОГЭ")
         btn2 = types.KeyboardButton(text="ПРОФИЛЬ")
         btn3 = types.KeyboardButton(text="БАЗА")
@@ -411,7 +517,6 @@ def registration(message: types.Message):
             bot.send_message(
                 message.chat.id,
                 text="Поздравляю, регистрация пройдена успешно! \nУспешного обучения и высоких баллов",
-                reply_markup=types.ReplyKeyboardRemove(),
             )
             kb = types.InlineKeyboardMarkup()
             btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
@@ -530,237 +635,277 @@ def profile(message: types.Message):
 
 
 # Решить задания
-def exercise_menu(message: types.Message):
+def exercise_menu(message: types.Message, page: int = 1, num: int = 1):
     # Создание объекта класса User с данными из БД по первичному ключу - user id
     with conn:
-        user = User.get(User.user_id == message.chat.id)
+        user = User.get(user_id=message.chat.id)
+        examtype = ExamType.get(exam_type=user.exam_type)
+        ex_list = [i for i in Exercise.select().where(Exercise.exam_type == user.exam_type)]
 
     def select_number(message: types.Message):
-        nonlocal user
+        nonlocal user, examtype
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True,
+                                       one_time_keyboard=True)
+
+        btns = [types.KeyboardButton(i) for i in range(1, examtype.number_of_questions + 1)]
+        kb.add(*btns)
         sent = bot.send_message(
-            message.chat.id,
-            f"Экзамен: {user.exam_type}\nКакой номер задания хочешь поботать? Пришли номер задания",
+            chat_id=message.chat.id,
+            text=f"Экзамен: {user.exam_type}\nКакой номер задания хочешь поботать? Пришли номер задания",
+            reply_markup=kb
         )
         bot.register_next_step_handler(sent, get_ex)
 
     def get_ex(message: types.Message):
-        nonlocal user
-        kb = types.InlineKeyboardMarkup()
-        btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
-        btn2 = types.InlineKeyboardButton(text="Ещё", callback_data="do exercises")
-        kb.add(btn1, btn2)
         try:
-            ex_type = message.text
-            with conn:
-                ex_list = [
-                    i
-                    for i in Exercise.select().where(
-                        Exercise.exam_type == user.exam_type,
-                        Exercise.number_of_ex_in_test == ex_type,
-                    )
-                ]
+            nonlocal user, ex_list
 
-            random.shuffle(ex_list)
-            exercise = random.choice(ex_list)
+            test_num = int(message.text) if message.text else num
+
+            ex_list = [i for i in ex_list if i.number_of_ex_in_test == test_num]
+
+            kb = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
+            kb.add(btn1)
+
+            left = page - 1 if page != 1 else len(ex_list)
+            right = page + 1 if page != len(ex_list) else 1
+
+            left_button = types.InlineKeyboardButton("←", callback_data=f'exercise {test_num} {left}')
+            page_button = types.InlineKeyboardButton(f"{page}/{len(ex_list)}", callback_data='menu')
+            right_button = types.InlineKeyboardButton("→", callback_data=f'exercise {test_num} {right}')
+            kb.add(left_button, page_button, right_button)
+
             bot.send_photo(
                 chat_id=message.chat.id,
-                photo=exercise.file_id,
-                caption=f"Ответ: ||{exercise.right_answer}||",
-                parse_mode="Markdown V2",
+                photo=ex_list[page - 1].file_id,
+                caption=f"Ответ: <tg-spoiler>{ex_list[page - 1].right_answer}</tg-spoiler>",
+                parse_mode="HTML",
                 reply_markup=kb,
             )
-        except Exception as error:
-            print(error)
-            bot.send_message(message.chat.id, "Заданий этого типа у меня ещё нет")
-        # Финиш
+            bot.delete_message(chat_id=message.chat.id,
+                               message_id=message.message_id)
 
-    select_number(message)
+        except Exception as e:
+            logger.error(e)
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton(text="В меню", callback_data="menu"))
+            bot.send_message(chat_id=message.chat.id,
+                             text="Заданий этого типа у меня ещё нет",
+                             reply_markup=kb)
+
+    if page == 1:
+        select_number(message)
+    else:
+        get_ex(message)
 
 
-def test_menu(message: types.Message):
+def test_menu(message: types.Message, page: int = 1):
     """Главное меню для вариантов"""
     # Проверка наличия вариантов
     try:
         with conn:
-            user = User.get(User.user_id == message.chat.id)
-            test = [
-                i
-                for i in Test.select()
-                .where(Test.exam_type == user.exam_type)
-                .order_by(Test.test_id.desc())
-                .execute()
-            ][0]
-            user_test, created = UserTestResult.get_or_create(
-                test_id=test.test_id,
-                defaults={
-                    "test_id": test.test_id,
-                    "user_id": user.user_id,
-                    "exam_type": user.exam_type,
-                },
+            user = User.get(user_id=message.chat.id)  # Получение данных о пользователе
+            tests = [i for i in Test.select().where(Test.exam_type == user.exam_type).order_by(
+                Test.test_id.desc()).execute()]  # получение пробников с типом экзамена юзера
+            test = tests[page - 1]  # Текущий пробник на вывод
+
+        kb = types.InlineKeyboardMarkup()
+
+        left = page - 1 if page != 1 else len(tests)
+        right = page + 1 if page != len(tests) else 1
+
+        left_button = types.InlineKeyboardButton("←", callback_data=f'test to {left}')
+        page_button = types.InlineKeyboardButton(f"{str(page)}/{str(len(tests))}", callback_data='menu')
+        right_button = types.InlineKeyboardButton("→", callback_data=f'test to {right}')
+        kb.add(left_button, page_button, right_button)
+
+        btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
+        btn2 = types.InlineKeyboardButton(text="Cдать ответы", callback_data=f"submit answers {test.test_id}")
+        kb.add(btn1, btn2)
+
+        # Отправка варианта
+        bot.send_document(
+            chat_id=message.chat.id,
+            document=test.file_id,
+            caption=f"Удачи!\n"
+                    f"Экзамен:{test.exam_type}\n"
+                    f"Вариант N:{test.test_id}\n",
+            visible_file_name=f"Вариант номер {test.test_id} по {test.exam_type}",
+            reply_markup=kb
+        )
+        bot.delete_message(chat_id=message.chat.id,
+                           message_id=message.message_id)
+
+    except Exception as e:
+        logger.error(e)
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton(text="В меню", callback_data="menu"))
+        bot.send_message(chat_id=message.chat.id,
+                         text="Вариантов пока нет",
+                         reply_markup=kb)
+
+
+# Сдача результатов
+def submit_answers(message: types.Message, test_id: int):
+    user_test = UserTestResult(test_id=test_id)
+
+    def submit_1part_answers(message: types.Message):
+        try:
+            text = """Пришли ответы *1 сообщением*, используя 1 строку как ответ на 1 вопрос, как в примере
+            Пример сообщения:
+            12
+            -34
+            56
+            ...
+            Будет распознано так:
+            1 задание - *12*
+            2 задание - *-34*
+            3 задание - *56*
+            и т.д."""
+            sent = bot.send_message(
+                chat_id=message.chat.id, text=text, parse_mode='Markdown'
             )
+            bot.register_next_step_handler(sent, save_1part)
+        except Exception as e:
+            logger.error(e)
+    def save_1part(message: types.Message):
+        nonlocal user_test
+        with conn:
+            test = Test.get(test_id=test_id)
+            user = User.get(user_id = message.chat.id)
+        try:  # Получение ответов от пользователя
+            user_answers = (message.text.split())  # конвертация строки с ответами пользователя-> список
+            test_answers = (test.answers_1part.split())  # Получение правильных ответов из БД
+            map(int, user_answers)  # проверка на числовое значение
+            # Алгоритм сверяет ответы
+            k = ["❌"] * len(test_answers)
+            for i in range(len(test_answers)):
+                try:
+                    if user_answers[i] == test_answers[i]:
+                        k[i] = "✅"  # Отмечается правильным, если элементы совпадают
+                except IndexError:
+                    user_answers.append("-")  # Если ученик сдал не все ответы,
+            # Сохранение результатов
+            user_test.answers_1part = " ".join(user_answers)  # Сохранение строки с ответами в БД
+            user_test.result_1part = " ".join(k)  # Сохранение строки с результатом проверки в БД
+            user_test.points_of_1_part = k.count("✅")  # Сохранение количества набранных баллов за 1 часть
 
-        def submit_1part_answers(message: types.Message):
-            try:
-                text = """Пришли ответы *1 сообщением*, используя пробел как разделитель, как в примере.
-                Пример: сообщение *"12 -34 56 ..."* будет распознано так:
-                1 задание - *12* 
-                2 задание - *-34* 
-                3 задание - *56* 
-                и т.д."""
-                sent = bot.send_message(
-                    chat_id=message.chat.id, text=text, parse_mode="Markdown"
-                )
-                bot.register_next_step_handler(sent, save_1part)
-            except Exception as e:
-                print("submit_1part_answers", e)
-
-        def save_1part(message: types.Message):
-            nonlocal user_test, test, user
-            try:  # Получение ответов от пользователя
-                user_answers = (
-                    message.text.split()
-                )  # конвертация строки с ответами пользователя-> список
-                test_answers = (
-                    test.answers_1part.split()
-                )  # Получение правильных ответов из БД
-                map(int, user_answers)  # проверка на числовое значение
-                # Алгоритм сверяет ответы
-                k = ["❌"] * len(test_answers)
-                for i in range(len(test_answers)):
-                    try:
-                        if user_answers[i] == test_answers[i]:
-                            k[i] = "✅"  # Отмечается правильным, если элементы совпадают
-                    except:
-                        user_answers.append("-")  # Если ученик сдал не все ответы,
-                    # Сохранение результатов
-                    user_test.answers_1part = " ".join(
-                        user_answers
-                    )  # Сохранение строки с ответами в БД
-                    user_test.result_1part = " ".join(
-                        k
-                    )  # Сохранение строки с результатом проверки в БД
-                    user_test.points_of_1_part = k.count(
-                        "✅"
-                    )  # Сохранение количества набранных баллов за 1 часть
-
-                submit_2part_answers(message)  #
-            except:
-                sent = bot.send_message(
-                    chat_id=message.chat.id,
-                    text="Произошла Ошибка. Пришли ответы как в примере ещё раз",
-                )
-                bot.register_next_step_handler(sent, submit_1part_answers)
-
-        def submit_2part_answers(message: types.Message):
-            """Поучение от пользователя фотографий с его решением 2 части"""
-            nonlocal user, test, user_test
-            kb = types.InlineKeyboardMarkup()
-
-            if user.if_get_course == "0":
-                user_test.student_file_id = None
-                btn1 = types.InlineKeyboardButton(
-                    "Перейти к результатам", callback_data="test"
-                )
-                btn2 = types.InlineKeyboardButton(
-                    "Купить курс", url="https://clck.ru/355ikC"
-                )
-                kb.add(btn1, btn2)
-                bot.send_message(
-                    chat_id=message.chat.id,
-                    text="Для экспертной проверки 2 части нужно купить курс",
-                    reply_markup=kb,
-                )
-
+            if user.if_get_course == 0:
+                aprove_answers(message)
             else:
-                sent = bot.send_message(
-                    chat_id=message.chat.id,
-                    text="""Пришли следующим сообщением фотографии решения 2 части. 
-                Важно прислать их 1 сообщением, а не по отдельности, чтобы я правильно их принял""",
-                )
-                bot.register_next_step_handler(sent, save_2part)
+                submit_2part_answers(message)
+        except Exception as e:
+            logger.error(e)
+            sent = bot.send_message(
+                chat_id=message.chat.id,
+                text="Произошла Ошибка. Пришли ответы как в примере ещё раз")
+            bot.register_next_step_handler(sent, submit_1part_answers)
 
-        def save_2part(message: types.Message):
-            nonlocal user, test, user_test
-            try:
-                user_test.student_file_id = " ".join(
-                    [ph.file_id for ph in message.photo]
-                )
+    def submit_2part_answers(message: types.Message):
+        """Поучение от пользователя фотографий с его решением 2 части"""
+        kb = types.InlineKeyboardMarkup()
+
+        sent = bot.send_message(
+            chat_id=message.chat.id,
+            text="""Пришли следующим сообщением фотографии решения 2 части.
+                Важно прислать их 1 сообщением, а не по отдельности, чтобы я правильно их принял""",)
+        bot.register_next_step_handler(sent, save_2part)
+    def save_2part(message: types.Message):
+        nonlocal user_test
+        try:
+            user_test.student_file_id = " ".join(
+                [ph.file_id for ph in message.photo]
+            )
+            aprove_answers(message)
+
+        except Exception as e:
+            print("save_2part", e)
+            sent = bot.send_message(message.chat.id, "Отправь фотки заново, пж")
+            bot.register_next_step_handler(sent, save_2part)
+
+    def aprove_answers(message:types.Message):
+        nonlocal user_test
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True,
+                                       input_field_placeholder='Используйте кнопки')
+        btn1 = types.KeyboardButton("Да")
+        btn2 = types.KeyboardButton("Ввести всё заново")
+        kb.add(btn1,btn2)
+        sent = bot.send_message(chat_id= message.chat.id,
+                                text=
+                                "Подтвердите ваш ответ"
+                                "Ваши ответы:" +
+                                "N | Твой ответ\n"+
+                                "\n".join([f"{index+1}.  {item}" for index,item in enumerate(user_test.answers_1part)]),
+                                reply_markup=kb)
+
+    def save_results(message: types.Message):
+        nonlocal user_test
+        match message.text:
+            case "Да":
                 with conn:
                     user_test.save()
-                    test.total_attempts += 1
-                    test.save()
-                send_results(message)
-            except Exception as e:
-                print("save_2part", e)
-                sent = bot.send_message(message.chat.id, "Отправь фотки, а не файлы")
-                bot.register_next_step_handler(sent, save_2part)
+                kb = types.InlineKeyboardMarkup()
+                kb.add(types.InlineKeyboardButton("К результатам", callback_data=f"send_result {test_id}"))
+                bot.send_message(chat_id=message.chat.id,
+                                 text="Успешно добавлено! А я уже знаю твои баллы за 1 часть, хочешь покажу ↓↓↓")
+            case _:
+                submit_1part_answers(message=message)
 
-        def send_results(message: types.Message):
-            nonlocal user, test, user_test
-            test_answers = test.answers_1part.split()
-            user_answers = user_test.answers_1part.split()
-            user_results_1part = user_test.result_1part.split()
-            user_points = user_test.points_of_1_part
-            text = "Результаты 1 части\nN Правильный ответ Твой ответ\n"
-            text += "\n".join(
-                [
-                    f"{i + 1}. {test_answers[i]} {user_answers[i]} {user_results_1part[i]}"
-                    for i in range(len(test_answers))
-                ]
-            )
-            bot.send_message(message.chat.id, text=text)
-            kb = types.InlineKeyboardMarkup()
-            btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
-            kb.add(btn1)
-            if user_test.teacher_file_id:
-                bot.send_document(
-                    chat_id=message.chat.id,
-                    document=user_test.teacher_file_id,
-                    caption=f"Результат проверки 2 части: {user_test.points_of_2_part} баллов",
-                    visible_file_name=f"{user.name} 2 часть {test.test_id}",
-                    reply_markup=kb,
-                )
-            else:
-                bot.send_message(
-                    message.chat.id, text="2 часть не проверена", reply_markup=kb
-                )
-
-        # Создание клавиатуры
-        kb = types.InlineKeyboardMarkup()
-        if created:
-            # Если новый вариант ещё не отправлен
-            btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
-            kb.add(btn1)
-            bot.send_document(
-                chat_id=message.chat.id,
-                document=test.file_id,
-                caption=f"Удачи!\n"
-                        + f"Экзамен:{test.exam_type}\n"
-                        + f"Вариант N:{test.test_id}\n",
-                visible_file_name=f"Вариант номер {test.test_id} по {test.exam_type}",
-                reply_markup=kb,
-            )
-            with conn:
-                user.last_test_id = test.test_id
-        elif user_test.answers_1part:  # Если ответы на 1 часть уже сданы
-            bot.send_message(
-                chat_id=message.chat.id, text="Результаты уже есть, сейчас отправлю"
-            )
-            send_results(message)
-        else:  # Если ответы ещё не сданы
-            bot.send_message(
-                chat_id=message.chat.id, text="Для получения результатов сдайте ответы"
-            )
-            submit_1part_answers(message)
-    except Exception as error:
-        print("test_menu", error)
-        bot.send_message(message.chat.id, "Вариантов ещё нет")
+#     def send_results(message: types.Message):
+#         nonlocal user, test, user_test
+#         test_answers = test.answers_1part.split()
+#         user_answers = user_test.answers_1part.split()
+#         user_results_1part = user_test.result_1part.split()
+#         user_points = user_test.points_of_1_part
+#         text = "Результаты 1 части\nN Правильный ответ Твой ответ\n"
+#         text += "\n".join(
+#             [
+#                 f"{i + 1}. {test_answers[i]} {user_answers[i]} {user_results_1part[i]}"
+#                 for i in range(len(test_answers))
+#             ]
+#         )
+#         bot.send_message(message.chat.id, text=text)
+#         kb = types.InlineKeyboardMarkup()
+#         btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
+#         kb.add(btn1)
+#         if user_test.teacher_file_id:
+#             bot.send_document(
+#                 chat_id=message.chat.id,
+#                 document=user_test.teacher_file_id,
+#                 caption=f"Результат проверки 2 части: {user_test.points_of_2_part} баллов",
+#                 visible_file_name=f"{user.name} 2 часть {test.test_id}",
+#                 reply_markup=kb,
+#             )
+#         else:
+#             bot.send_message(
+#                 message.chat.id, text="2 часть ещё не проверена", reply_markup=kb
+#             )
+#
+#     # Создание клавиатуры
+#     kb = types.InlineKeyboardMarkup()
+#
+#     if user_test.answers_1part:  # Если ответы на 1 часть уже сданы
+#         bot.send_message(
+#             chat_id=message.chat.id, text="Результаты уже есть, сейчас отправлю"
+#         )
+#         send_results(message)
+#     else:  # Если ответы ещё не сданы
+#         bot.send_message(
+#             chat_id=message.chat.id, text="Для получения результатов сдайте ответы"
+#         )
+#         submit_1part_answers(message)
+#
+# except Exception as error:
+# print("test_menu", error)
+# bot.send_message(message.chat.id, "Вариантов ещё нет")
 
 
 def message_admin_menu(message: types.Message, mode):
     """Функция написать учителю. Запрашивает сообщение"""
-    def get_msg(message: types.Message, text):
-        if mode == 'teacher':
+
+    def get_msg(message: types.Message):
+        if mode == "teacher":
             text = (
                 "Возникли трудности в решении задачи? Напиши сообщение Олегу, надеюсь он поможет.\n"
                 "Постарайся максимально объяснить ситуацию + постарайся предложить свой путь решения"
@@ -768,8 +913,10 @@ def message_admin_menu(message: types.Message, mode):
                 "<tg-spoiler>А можешь просто похвалить за хорошую работу)</tg-spoiler>"
             )
         else:
-            text = "Что-то случилось? Опиши проблему максимально как можешь. Можешь также прикрепить фотографию\n" \
-                   "<tg-spoiler>Техподдержка не помогает в решении задач и вариантов</tg-spoiler>"
+            text = (
+                "Что-то случилось? Опиши проблему максимально как можешь. Можешь также прикрепить фотографию\n"
+                "<tg-spoiler>Техподдержка не помогает в решении задач и вариантов</tg-spoiler>"
+            )
         # Создание клавиатуры и добавление кнопки "В меню"
         kb = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
@@ -797,21 +944,25 @@ def message_admin_menu(message: types.Message, mode):
         )
 
         # Отправляет сообщение в чат для учителя
-        callback_text = f"teacher answer {message.chat.id}" if mode == "teacher" \
-                        else f"support answer {message.chat.id}"
+        callback_text = (
+            f"teacher answer {message.chat.id}"
+            if mode == "teacher"
+            else f"support answer {message.chat.id}"
+        )
 
         kb = types.InlineKeyboardMarkup()
-        btn2 = types.InlineKeyboardButton(
-            "Ответить", callback_data=callback_text)
+        btn2 = types.InlineKeyboardButton("Ответить", callback_data=callback_text)
         kb.add(btn2)
         bot.forward_message(
             chat_id=os.getenv("HELP_CHAT"),
             from_chat_id=message.chat.id,
-            message_id=message.message_id)
+            message_id=message.message_id,
+        )
         bot.send_message(
             chat_id=os.getenv("HELP_CHAT"),
-            text=f"Обращение от @{message.from_user.username} {message.chat.id} к {mode}",
-            reply_markup=kb)
+            text=f"Обращение от @{message.from_user.username} {message.chat.id} к {mode}:\n{message}",
+            reply_markup=kb,
+        )
 
     get_msg(message)
 
@@ -833,38 +984,13 @@ def echo(message: types.Message):
         "Я вас не понимаю, попробуйте использовать кнопки, нажав /start",
     )
 
-
-if __name__ == "__main__":
+def main():
     # Создание таблицы и объектов таблиц (моделей)
-    with conn:
-        conn.create_tables(
-            [ExamType, User, Exercise, Test, UserTestResult, UserHomeworkResult]
-        )
-
-        exams = [
-            {
-                "exam_type": "ПРОФИЛЬ",
-                "number_of_questions": 18,
-                "max_points": 31,
-                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 2 3 2 2 3 4 4",
-            },
-            {
-                "exam_type": "БАЗА",
-                "number_of_questions": 18,
-                "max_points": 21,
-                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
-            },
-            {
-                "exam_type": "ОГЭ",
-                "number_of_questions": 25,
-                "max_points": 31,
-                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2",
-            },
-        ]
-        try:
-            ExamType.insert_many(exams).execute()
-        except:
-            pass
+    on_start()
     # уведомляет о запуске бота
     on_starting()
-    bot.polling()
+
+
+if __name__ == "__main__":
+    main()
+    bot.polling(non_stop=True)

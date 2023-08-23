@@ -48,20 +48,13 @@ class Exercise(BaseModel):
 
 
 # Модель упражнения
-class Homework1part(BaseModel):
+class Homework(BaseModel):
     hw_id = AutoField(primary_key=True)
+    created_date = DateField()
     file_id = TextField()
     exam_type = ForeignKeyField(ExamType, column_name="exam_type")
+    hw_type = IntegerField()
     right_answer = TextField(null=True)
-    total_attempts = IntegerField(default=0, null=True)
-    right_attempts = IntegerField(default=0, null=True)
-
-
-# Модель упражнения
-class Homework2part(BaseModel):
-    hw_id = AutoField(primary_key=True)
-    file_id = TextField()
-    exam_type = ForeignKeyField(ExamType, column_name="exam_type")
     total_attempts = IntegerField(default=0, null=True)
     right_attempts = IntegerField(default=0, null=True)
 
@@ -101,6 +94,44 @@ class UserHomeworkResult(BaseModel):
     points_of_1_part = IntegerField(default=0)
     points_of_2_part = IntegerField(default=0)
 
+def on_start():
+    with conn:
+        conn.create_tables(
+            [
+                ExamType,
+                User,
+                Exercise,
+                Test,
+                UserTestResult,
+                UserHomeworkResult,
+                Homework,
+            ]
+        )
+
+        exams = [
+            {
+                "exam_type": "ПРОФИЛЬ",
+                "number_of_questions": 18,
+                "max_points": 31,
+                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 2 3 2 2 3 4 4",
+            },
+            {
+                "exam_type": "БАЗА",
+                "number_of_questions": 18,
+                "max_points": 21,
+                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
+            },
+            {
+                "exam_type": "ОГЭ",
+                "number_of_questions": 25,
+                "max_points": 31,
+                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2",
+            },
+        ]
+        try:
+            ExamType.insert_many(exams).execute()
+        except:
+            pass
 
 if __name__ == "__main__":
     with conn:
