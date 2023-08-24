@@ -42,7 +42,7 @@ def start(message: types.Message):
 
     # Если новый пользователь
     elif not user.name:
-        logger.info(f'Написал новый пользователь {message.from_user.username}')
+        logger.info(f'Написал новый пользователь {message.from_user.username} {message.chat.id}')
 
         # Создание кнопок и добавление в клавиатуру
         btn1 = types.InlineKeyboardButton(text="Подписаться", url="https://t.me/dushnilamath")
@@ -176,6 +176,13 @@ def check_callback_data(callback: types.CallbackQuery):
                         page = int(callback.data.split()[2])
                         test_menu(callback.message, page=page)
 
+                    case "submit_test_answers":
+                        test_id = int(callback.data.split()[1])
+                        submit_test_answers(callback.message, test_id)
+                    case "send_result":
+                        test_id = int(callback.data.split()[1])
+                        send_test_results(callback.message, test_id)
+
 
 """Часть для учителя и админов"""
 
@@ -224,7 +231,8 @@ def add_exercise(message: types.Message):
 
     def add_exercise_type(message: types.Message):
         try:
-            kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            kb = types.ReplyKeyboardMarkup(resize_keyboard=True,one_time_keyboard=True,
+                                           input_field_placeholder="ПРОФИЛЬ/БАЗА/ОГЭ")
             btn1 = types.KeyboardButton("ПРОФИЛЬ")
             btn2 = types.KeyboardButton("БАЗА")
             btn3 = types.KeyboardButton("ОГЭ")
@@ -292,7 +300,8 @@ def add_homework(message: types.Message):
 
     def add_homework_exam(message: types.Message):
         try:
-            kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True,
+                                           input_field_placeholder="ПРОФИЛЬ/БАЗА/ОГЭ")
             btn1 = types.KeyboardButton("ПРОФИЛЬ")
             btn2 = types.KeyboardButton("БАЗА")
             btn3 = types.KeyboardButton("ОГЭ")
@@ -368,7 +377,8 @@ def add_test(message: types.Message):
 
     def add_test_type(message: types.Message):
         try:
-            kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True,
+                                           input_field_placeholder="ПРОФИЛЬ/БАЗА/ОГЭ")
             btn1 = types.KeyboardButton("ПРОФИЛЬ")
             btn2 = types.KeyboardButton("БАЗА")
             btn3 = types.KeyboardButton("ОГЭ")
@@ -493,7 +503,8 @@ def registration(message: types.Message):
         except:
             user.name = message.text
             user.lastname = "-"
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1, one_time_keyboard=True)
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1, one_time_keyboard=True,
+                                       input_field_placeholder="ПРОФИЛЬ/БАЗА/ОГЭ")
         btn1 = types.KeyboardButton(text="ОГЭ")
         btn2 = types.KeyboardButton(text="ПРОФИЛЬ")
         btn3 = types.KeyboardButton(text="БАЗА")
@@ -721,7 +732,7 @@ def test_menu(message: types.Message, page: int = 1):
         kb.add(left_button, page_button, right_button)
 
         btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
-        btn2 = types.InlineKeyboardButton(text="Cдать ответы", callback_data=f"submit answers {test.test_id}")
+        btn2 = types.InlineKeyboardButton(text="Cдать ответы", callback_data=f"submit_test_answers {test.test_id}")
         kb.add(btn1, btn2)
 
         # Отправка варианта
@@ -746,25 +757,29 @@ def test_menu(message: types.Message, page: int = 1):
                          reply_markup=kb)
 
 
+
 # Сдача результатов
-def submit_answers(message: types.Message, test_id: int):
+@logger.catch()
+def submit_test_answers(message: types.Message, test_id: int):
     user_test = UserTestResult(test_id=test_id)
 
     def submit_1part_answers(message: types.Message):
         try:
             text = """Пришли ответы *1 сообщением*, используя 1 строку как ответ на 1 вопрос, как в примере
-            Пример сообщения:
-            12
-            -34
-            56
-            ...
-            Будет распознано так:
-            1 задание - *12*
-            2 задание - *-34*
-            3 задание - *56*
-            и т.д."""
+        Пример сообщения:
+        12
+        -34
+        56
+        ...
+        Будет распознано так:
+        1 задание - *12*
+        2 задание - *-34*
+        3 задание - *56*
+        и т.д."""
             sent = bot.send_message(
-                chat_id=message.chat.id, text=text, parse_mode='Markdown'
+                chat_id=message.chat.id,
+                text=text,
+                parse_mode='Markdown'
             )
             bot.register_next_step_handler(sent, save_1part)
         except Exception as e:
@@ -773,7 +788,11 @@ def submit_answers(message: types.Message, test_id: int):
         nonlocal user_test
         with conn:
             test = Test.get(test_id=test_id)
-            user = User.get(user_id = message.chat.id)
+            user = User.get(user_id=message.chat.id)
+
+        user_test.user_id = user.user_id
+        user_test.exam_type = user.exam_type
+
         try:  # Получение ответов от пользователя
             user_answers = (message.text.split())  # конвертация строки с ответами пользователя-> список
             test_answers = (test.answers_1part.split())  # Получение правильных ответов из БД
@@ -809,8 +828,9 @@ def submit_answers(message: types.Message, test_id: int):
         sent = bot.send_message(
             chat_id=message.chat.id,
             text="""Пришли следующим сообщением фотографии решения 2 части.
-                Важно прислать их 1 сообщением, а не по отдельности, чтобы я правильно их принял""",)
+                Важно прислать их 1 сообщением, а не по отдельности, чтобы я правильно их принял""", )
         bot.register_next_step_handler(sent, save_2part)
+
     def save_2part(message: types.Message):
         nonlocal user_test
         try:
@@ -824,64 +844,85 @@ def submit_answers(message: types.Message, test_id: int):
             sent = bot.send_message(message.chat.id, "Отправь фотки заново, пж")
             bot.register_next_step_handler(sent, save_2part)
 
-    def aprove_answers(message:types.Message):
+    def aprove_answers(message: types.Message):
         nonlocal user_test
         kb = types.ReplyKeyboardMarkup(resize_keyboard=True,
+                                       one_time_keyboard=True,
                                        input_field_placeholder='Используйте кнопки')
         btn1 = types.KeyboardButton("Да")
         btn2 = types.KeyboardButton("Ввести всё заново")
-        kb.add(btn1,btn2)
-        sent = bot.send_message(chat_id= message.chat.id,
+        kb.add(btn1, btn2)
+        sent = bot.send_message(chat_id=message.chat.id,
                                 text=
-                                "Подтвердите ваш ответ"
-                                "Ваши ответы:" +
-                                "N | Твой ответ\n"+
-                                "\n".join([f"{index+1}.  {item}" for index,item in enumerate(user_test.answers_1part)]),
+                                "Подтвердите ваши ответы\n" +
+                                "N | Твой ответ\n" +
+                                "".join(
+                                    [f"{index + 1}.  {item}\n" for index, item in enumerate(user_test.answers_1part.split())]),
                                 reply_markup=kb)
+        logger.info(sent.text)
+        bot.register_next_step_handler(sent,save_results)
 
     def save_results(message: types.Message):
         nonlocal user_test
-        match message.text:
-            case "Да":
+        try:
+            if message.text == "Да":
                 with conn:
                     user_test.save()
                 kb = types.InlineKeyboardMarkup()
                 kb.add(types.InlineKeyboardButton("К результатам", callback_data=f"send_result {test_id}"))
                 bot.send_message(chat_id=message.chat.id,
-                                 text="Успешно добавлено! А я уже знаю твои баллы за 1 часть, хочешь покажу ↓↓↓")
-            case _:
+                                 text="Успешно добавлено! А я уже знаю твои баллы за 1 часть, хочешь покажу ↓↓↓",
+                                 reply_markup=kb)
+            else:
                 submit_1part_answers(message=message)
+        except Exception as e:
+            logger.error(e)
+            bot.send_message(chat_id= message.chat.id,
+                             text="Произошла ошибка, попробуйте ввести ответы снова")
+            submit_1part_answers(message=message)
 
-#     def send_results(message: types.Message):
-#         nonlocal user, test, user_test
-#         test_answers = test.answers_1part.split()
-#         user_answers = user_test.answers_1part.split()
-#         user_results_1part = user_test.result_1part.split()
-#         user_points = user_test.points_of_1_part
-#         text = "Результаты 1 части\nN Правильный ответ Твой ответ\n"
-#         text += "\n".join(
-#             [
-#                 f"{i + 1}. {test_answers[i]} {user_answers[i]} {user_results_1part[i]}"
-#                 for i in range(len(test_answers))
-#             ]
-#         )
-#         bot.send_message(message.chat.id, text=text)
-#         kb = types.InlineKeyboardMarkup()
-#         btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
-#         kb.add(btn1)
-#         if user_test.teacher_file_id:
-#             bot.send_document(
-#                 chat_id=message.chat.id,
-#                 document=user_test.teacher_file_id,
-#                 caption=f"Результат проверки 2 части: {user_test.points_of_2_part} баллов",
-#                 visible_file_name=f"{user.name} 2 часть {test.test_id}",
-#                 reply_markup=kb,
-#             )
-#         else:
-#             bot.send_message(
-#                 message.chat.id, text="2 часть ещё не проверена", reply_markup=kb
-#             )
-#
+
+    # Запуск
+    submit_1part_answers(message)
+
+
+def send_test_results(message: types.Message, test_id: int):
+    with conn:
+        user_test = UserTestResult.get(test_id = test_id,
+                                       user_id=message.chat.id)
+        test = Test.get(test_id = test_id)
+
+
+    test_answers = test.answers_1part.split()
+    user_answers = user_test.answers_1part.split()
+    user_results_1part = user_test.result_1part.split()
+    user_points = user_test.points_of_1_part
+    text = f"Результаты 1 части - набрано {user_points} балла\n     N Твой ответ\n"
+    # text += "\n".join([f"{i + 1}. {user_answers[i]:17} {test_answers[i]} {user_results_1part[i]}" for i in range(len(test_answers)) if user_results_1part == "❎" else f"{i + 1}. {user_answers[i]:17} {user_results_1part[i]}"])
+    for i,(test_answer,user_answer,res) in enumerate(zip(test_answers,user_answers,user_results_1part)):
+        text += f"`{res}{i+1}. {user_answer} (Ответ: {test_answer})\n`" if res == "❌" \
+           else f"`{res}{i+1}. {user_answer}\n`"
+    bot.send_message(message.chat.id, text=text,parse_mode='Markdown')
+
+    kb = types.InlineKeyboardMarkup()
+    btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
+    kb.add(btn1)
+    if user_test.teacher_file_id:
+        bot.send_document(
+            chat_id=message.chat.id,
+            document=user_test.teacher_file_id,
+            caption=f"Результат проверки 2 части: {user_test.points_of_2_part} баллов",
+            visible_file_name=f"{user_test.user_id} 2 часть {test.test_id}",
+            reply_markup=kb
+        )
+    else:
+        bot.send_message(
+            chat_id= message.chat.id,
+            text="2 часть ещё не проверена",
+            reply_markup=kb
+        )
+
+
 #     # Создание клавиатуры
 #     kb = types.InlineKeyboardMarkup()
 #
@@ -983,6 +1024,7 @@ def echo(message: types.Message):
         message.chat.id,
         "Я вас не понимаю, попробуйте использовать кнопки, нажав /start",
     )
+
 
 def main():
     # Создание таблицы и объектов таблиц (моделей)
