@@ -51,7 +51,7 @@ def start(message: types.Message):
 
         # Отправка сообщения
         bot.send_message(
-            message.chat.id,
+            chat_id = message.chat.id,
             text="""Привет, я тот самый бот душнила, помогу тебе сдать экзамен на максимум!
                                       \n Давай подпишемся на канал неДУШНАЯ математика и продолжим регистрацию""",
             reply_markup=kb)
@@ -231,7 +231,7 @@ def add_exercise(message: types.Message):
 
     def add_exercise_type(message: types.Message):
         try:
-            kb = types.ReplyKeyboardMarkup(resize_keyboard=True,one_time_keyboard=True,
+            kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True,
                                            input_field_placeholder="ПРОФИЛЬ/БАЗА/ОГЭ")
             btn1 = types.KeyboardButton("ПРОФИЛЬ")
             btn2 = types.KeyboardButton("БАЗА")
@@ -309,9 +309,15 @@ def add_homework(message: types.Message):
             sent = bot.send_message(
                 message.chat.id, "Задача для какого экзамена?", reply_markup=kb
             )
-            bot.register_next_step_handler(sent, add_homework_type)
+            bot.register_next_step_handler(sent, add_lesson_num)
         except:
             pass
+
+    def add_lesson_num(message:types.Message):
+        nonlocal homework
+        homework.exam_type = message.text
+        sent = bot.send_message(message.chat.id, "Введите номер урока?")
+        bot.register_next_step_handler(sent, add_homework_type)
 
     def add_homework_type(message: types.Message):
         nonlocal homework
@@ -606,7 +612,7 @@ def student_menu(message: types.Message):
     # Финиш
 
 
-# Вывод профиля пользователя
+# Меню профиля пользователя
 def profile(message: types.Message):
     # Создание объекта класса User с данными из БД по первичному ключу - user id
     with conn:
@@ -645,7 +651,7 @@ def profile(message: types.Message):
     )
 
 
-# Решить задания
+# Меню с заданиями
 def exercise_menu(message: types.Message, page: int = 1, num: int = 1):
     # Создание объекта класса User с данными из БД по первичному ключу - user id
     with conn:
@@ -711,8 +717,9 @@ def exercise_menu(message: types.Message, page: int = 1, num: int = 1):
         get_ex(message)
 
 
+# Выбор пробника
 def test_menu(message: types.Message, page: int = 1):
-    """Главное меню для вариантов"""
+
     # Проверка наличия вариантов
     try:
         with conn:
@@ -720,6 +727,8 @@ def test_menu(message: types.Message, page: int = 1):
             tests = [i for i in Test.select().where(Test.exam_type == user.exam_type).order_by(
                 Test.test_id.desc()).execute()]  # получение пробников с типом экзамена юзера
             test = tests[page - 1]  # Текущий пробник на вывод
+            user_test = UserTestResult.get_or_none(user_id=user.user_id,
+                                                   test_id=test.test_id)
 
         kb = types.InlineKeyboardMarkup()
 
@@ -732,8 +741,11 @@ def test_menu(message: types.Message, page: int = 1):
         kb.add(left_button, page_button, right_button)
 
         btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
-        btn2 = types.InlineKeyboardButton(text="Cдать ответы", callback_data=f"submit_test_answers {test.test_id}")
-        kb.add(btn1, btn2)
+        if not user_test:
+            btn2 = types.InlineKeyboardButton(text="Cдать ответы", callback_data=f"submit_test_answers {test.test_id}")
+        else:
+            btn2 = types.InlineKeyboardButton(text="К результатам", callback_data=f"send_result {test.test_id}")
+        kb.add(btn1,btn2)
 
         # Отправка варианта
         bot.send_document(
@@ -756,10 +768,7 @@ def test_menu(message: types.Message, page: int = 1):
                          text="Вариантов пока нет",
                          reply_markup=kb)
 
-
-
-# Сдача результатов
-@logger.catch()
+# Сдача ответов пробника
 def submit_test_answers(message: types.Message, test_id: int):
     user_test = UserTestResult(test_id=test_id)
 
@@ -784,6 +793,7 @@ def submit_test_answers(message: types.Message, test_id: int):
             bot.register_next_step_handler(sent, save_1part)
         except Exception as e:
             logger.error(e)
+
     def save_1part(message: types.Message):
         nonlocal user_test
         with conn:
@@ -857,10 +867,11 @@ def submit_test_answers(message: types.Message, test_id: int):
                                 "Подтвердите ваши ответы\n" +
                                 "N | Твой ответ\n" +
                                 "".join(
-                                    [f"{index + 1}.  {item}\n" for index, item in enumerate(user_test.answers_1part.split())]),
+                                    [f"{index + 1}.  {item}\n" for index, item in
+                                     enumerate(user_test.answers_1part.split())]),
                                 reply_markup=kb)
         logger.info(sent.text)
-        bot.register_next_step_handler(sent,save_results)
+        bot.register_next_step_handler(sent, save_results)
 
     def save_results(message: types.Message):
         nonlocal user_test
@@ -877,21 +888,20 @@ def submit_test_answers(message: types.Message, test_id: int):
                 submit_1part_answers(message=message)
         except Exception as e:
             logger.error(e)
-            bot.send_message(chat_id= message.chat.id,
+            bot.send_message(chat_id=message.chat.id,
                              text="Произошла ошибка, попробуйте ввести ответы снова")
             submit_1part_answers(message=message)
-
 
     # Запуск
     submit_1part_answers(message)
 
 
+# Вывод результатов пробника
 def send_test_results(message: types.Message, test_id: int):
     with conn:
-        user_test = UserTestResult.get(test_id = test_id,
+        user_test = UserTestResult.get(test_id=test_id,
                                        user_id=message.chat.id)
-        test = Test.get(test_id = test_id)
-
+        test = Test.get(test_id=test_id)
 
     test_answers = test.answers_1part.split()
     user_answers = user_test.answers_1part.split()
@@ -899,10 +909,10 @@ def send_test_results(message: types.Message, test_id: int):
     user_points = user_test.points_of_1_part
     text = f"Результаты 1 части - набрано {user_points} балла\n     N Твой ответ\n"
     # text += "\n".join([f"{i + 1}. {user_answers[i]:17} {test_answers[i]} {user_results_1part[i]}" for i in range(len(test_answers)) if user_results_1part == "❎" else f"{i + 1}. {user_answers[i]:17} {user_results_1part[i]}"])
-    for i,(test_answer,user_answer,res) in enumerate(zip(test_answers,user_answers,user_results_1part)):
-        text += f"`{res}{i+1}. {user_answer} (Ответ: {test_answer})\n`" if res == "❌" \
-           else f"`{res}{i+1}. {user_answer}\n`"
-    bot.send_message(message.chat.id, text=text,parse_mode='Markdown')
+    for i, (test_answer, user_answer, res) in enumerate(zip(test_answers, user_answers, user_results_1part)):
+        text += f"`{res}{i + 1}. {user_answer} (Ответ: {test_answer})\n`" if res == "❌" \
+            else f"`{res}{i + 1}. {user_answer}\n`"
+    bot.send_message(message.chat.id, text=text, parse_mode='Markdown')
 
     kb = types.InlineKeyboardMarkup()
     btn1 = types.InlineKeyboardButton("В меню", callback_data="menu")
@@ -917,29 +927,106 @@ def send_test_results(message: types.Message, test_id: int):
         )
     else:
         bot.send_message(
-            chat_id= message.chat.id,
+            chat_id=message.chat.id,
             text="2 часть ещё не проверена",
             reply_markup=kb
         )
 
+# Меню с заданиями
+# def homework_menu(message: types.Message, page: int = 1):
+#     # Создание объекта класса User с данными из БД по первичному ключу - user i
+#     def select_number(message: types.Message):
+#         # Проверка наличия вариантов
+#         try:
+#             with conn:
+#                 user_homework_results = [i for i in UserHomeworkResult.select().where(user_id=message.chat.id).execut()]  # Получение данных о пользователе
+#                 homework_list = [i for i in Homework.select().where().order_by(Test.test_id.desc()).execute()]  # получение пробников с типом экзамена юзера
+#                 test = homework_list[page - 1]  # Текущий пробник на вывод
+#                 user_test = UserTestResult.get_or_none(user_id=user.user_id,
+#                                                        test_id=test.test_id)
+#
+#             kb = types.InlineKeyboardMarkup()
+#
+#             left = page - 1 if page != 1 else len(tests)
+#             right = page + 1 if page != len(tests) else 1
+#
+#             left_button = types.InlineKeyboardButton("←", callback_data=f'test to {left}')
+#             page_button = types.InlineKeyboardButton(f"{str(page)}/{str(len(tests))}", callback_data='menu')
+#             right_button = types.InlineKeyboardButton("→", callback_data=f'test to {right}')
+#             kb.add(left_button, page_button, right_button)
+#
+#             btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
+#             if not user_test:
+#                 btn2 = types.InlineKeyboardButton(text="Cдать ответы",
+#                                                   callback_data=f"submit_test_answers {test.test_id}")
+#             else:
+#                 btn2 = types.InlineKeyboardButton(text="К результатам", callback_data=f"send_result {test.test_id}")
+#             kb.add(btn1, btn2)
+#
+#             # Отправка варианта
+#             bot.send_document(
+#                 chat_id=message.chat.id,
+#                 document=test.file_id,
+#                 caption=f"Удачи!\n"
+#                         f"Экзамен:{test.exam_type}\n"
+#                         f"Вариант N:{test.test_id}\n",
+#                 visible_file_name=f"Вариант номер {test.test_id} по {test.exam_type}",
+#                 reply_markup=kb
+#             )
+#             bot.delete_message(chat_id=message.chat.id,
+#                                message_id=message.message_id)
+#
+#         except Exception as e:
+#             logger.error(e)
+#             kb = types.InlineKeyboardMarkup()
+#             kb.add(types.InlineKeyboardButton(text="В меню", callback_data="menu"))
+#             bot.send_message(chat_id=message.chat.id,
+#                              text="Вариантов пока нет",
+#                              reply_markup=kb)
+#
+#     def get_ex(message: types.Message):
+#         try:
+#             nonlocal user, ex_list
+#
+#             test_num = int(message.text) if message.text else num
+#
+#             ex_list = [i for i in ex_list if i.number_of_ex_in_test == test_num]
+#
+#             kb = types.InlineKeyboardMarkup()
+#             btn1 = types.InlineKeyboardButton(text="В меню", callback_data="menu")
+#             kb.add(btn1)
+#
+#             left = page - 1 if page != 1 else len(ex_list)
+#             right = page + 1 if page != len(ex_list) else 1
+#
+#             left_button = types.InlineKeyboardButton("←", callback_data=f'exercise {test_num} {left}')
+#             page_button = types.InlineKeyboardButton(f"{page}/{len(ex_list)}", callback_data='menu')
+#             right_button = types.InlineKeyboardButton("→", callback_data=f'exercise {test_num} {right}')
+#             kb.add(left_button, page_button, right_button)
+#
+#             bot.send_photo(
+#                 chat_id=message.chat.id,
+#                 photo=ex_list[page - 1].file_id,
+#                 caption=f"Ответ: <tg-spoiler>{ex_list[page - 1].right_answer}</tg-spoiler>",
+#                 parse_mode="HTML",
+#                 reply_markup=kb,
+#             )
+#             bot.delete_message(chat_id=message.chat.id,
+#                                message_id=message.message_id)
+#
+#         except Exception as e:
+#             logger.error(e)
+#             kb = types.InlineKeyboardMarkup()
+#             kb.add(types.InlineKeyboardButton(text="В меню", callback_data="menu"))
+#             bot.send_message(chat_id=message.chat.id,
+#                              text="Заданий этого типа у меня ещё нет",
+#                              reply_markup=kb)
+#
+#     if page == 1:
+#         select_number(message)
+#     else:
+#         get_ex(message)
 
-#     # Создание клавиатуры
-#     kb = types.InlineKeyboardMarkup()
-#
-#     if user_test.answers_1part:  # Если ответы на 1 часть уже сданы
-#         bot.send_message(
-#             chat_id=message.chat.id, text="Результаты уже есть, сейчас отправлю"
-#         )
-#         send_results(message)
-#     else:  # Если ответы ещё не сданы
-#         bot.send_message(
-#             chat_id=message.chat.id, text="Для получения результатов сдайте ответы"
-#         )
-#         submit_1part_answers(message)
-#
-# except Exception as error:
-# print("test_menu", error)
-# bot.send_message(message.chat.id, "Вариантов ещё нет")
 
 
 def message_admin_menu(message: types.Message, mode):

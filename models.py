@@ -50,7 +50,7 @@ class Exercise(BaseModel):
 # Модель упражнения
 class Homework(BaseModel):
     hw_id = AutoField(primary_key=True)
-    created_date = DateField()
+    lesson_id = IntegerField(null=False)
     file_id = TextField()
     exam_type = ForeignKeyField(ExamType, column_name="exam_type")
     hw_type = IntegerField()
