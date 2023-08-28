@@ -47,14 +47,13 @@ class Exercise(BaseModel):
     right_attempts = IntegerField(default=0, null=True)
 
 
-# Модель упражнения
+# Модель дз
 class Homework(BaseModel):
     hw_id = AutoField(primary_key=True)
-    lesson_id = IntegerField(null=False)
     file_id = TextField()
     exam_type = ForeignKeyField(ExamType, column_name="exam_type")
     hw_type = IntegerField()
-    right_answer = TextField(null=True)
+    right_answers = TextField(null=True)
     total_attempts = IntegerField(default=0, null=True)
     right_attempts = IntegerField(default=0, null=True)
 
@@ -89,10 +88,10 @@ class UserHomeworkResult(BaseModel):
     hw_id = ForeignKeyField(Test)
     exam_type = ForeignKeyField(ExamType, column_name="exam_type")
     answers_1part = TextField(null=True)
+    result_1part = TextField(null=True)
     student_file_id = TextField(null=True)
     teacher_file_id = TextField(null=True)
-    points_of_1_part = IntegerField(default=0)
-    points_of_2_part = IntegerField(default=0)
+    points = IntegerField(default=0)
 
 def on_start():
     with conn:
