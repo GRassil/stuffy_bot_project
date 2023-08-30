@@ -23,7 +23,7 @@ def is_admin(message: types.Message) -> bool:
 def on_starting():
     """Уведомляет админов, что бот начал работу"""
     # Пишет в чат поддержки, что бот запущен
-    bot.send_message(chat_id=os.getenv("help_chat"), text="БОТ ЗАПУЩЕН /start")
+    bot.send_message(chat_id=os.getenv("HELP_CHAT"), text="БОТ ЗАПУЩЕН /start")
     # Вывод в лог
     logger.info(f"___СТАРТ___")
 
@@ -31,44 +31,68 @@ def on_starting():
 @bot.message_handler(commands=["start"])
 def start(message: types.Message):
     """Стартовый обработчик (Обработчик при команде '/start')"""
+    try:
+        # Создание клавиатуры
+        kb = types.InlineKeyboardMarkup()
 
-    # Создание клавиатуры
-    kb = types.InlineKeyboardMarkup()
+        # Создание объекта класса User
+        user, created = User.get_or_create(user_id=message.chat.id, defaults={"user_id": message.chat.id})
 
-    # Создание объекта класса User
-    user, created = User.get_or_create(user_id=message.chat.id, defaults={"user_id": message.chat.id})
+        # Если админ
+        if is_admin(message):
+            logger.info('Написал админ')  # Вывод инфы в лог
+            # TODO: Сделать отдельное меню для админов, со своими функциями
+            teacher_menu(message)  # Переход в меню для учителя
 
-    # Если админ
-    if is_admin(message):
-        logger.info('Написал админ')  # Вывод инфы в лог
-        # TODO: Сделать отдельное меню для админов, со своими функциями
-        teacher_menu(message)  # Переход в меню для учителя
+        # Если новый пользователь
+        elif not user.name:
+            # Вывод инфы в лог
+            logger.info(f'Написал новый пользователь {message.from_user.username} {message.chat.id}')
 
-    # Если новый пользователь
-    elif not user.name:
-        # Вывод инфы в лог
-        logger.info(f'Написал новый пользователь {message.from_user.username} {message.chat.id}')
+            # Создание кнопок и добавление в клавиатуру
+            btn1 = types.InlineKeyboardButton(text="Подписаться", url="https://t.me/dushnilamath")  # url-кнопка
+            btn2 = types.InlineKeyboardButton(text="Регистрация", callback_data="registration")  # переход на регистрацию
+            kb.add(btn1, btn2)  # Добавление кнопок в клавиатуру
 
-        # Создание кнопок и добавление в клавиатуру
-        btn1 = types.InlineKeyboardButton(text="Подписаться", url="https://t.me/dushnilamath")  # url-кнопка
-        btn2 = types.InlineKeyboardButton(text="Регистрация", callback_data="registration")  # переход на регистрацию
-        kb.add(btn1, btn2)  # Добавление кнопок в клавиатуру
+            # Отправка сообщения
+            bot.send_message(
+                chat_id=message.chat.id,
+                text="""Привет, я тот самый бот душнила, помогу тебе сдать экзамен на максимум!
+                \n Давай подпишемся на канал неДУШНАЯ математика и продолжим регистрацию""",
+                reply_markup=kb)
 
-        # Отправка сообщения
-        bot.send_message(
-            chat_id=message.chat.id,
-            text="""Привет, я тот самый бот душнила, помогу тебе сдать экзамен на максимум!
-            \n Давай подпишемся на канал неДУШНАЯ математика и продолжим регистрацию""",
-            reply_markup=kb)
-
-    # Если юзер уже зарегистрирован
-    else:
-        # Вывод инфы в лог
-        logger.info(f'Написал пользователь {message.from_user.username}')
-        # Переход в меню ученика
-        student_menu(message)
+        # Если юзер уже зарегистрирован
+        else:
+            # Вывод инфы в лог
+            logger.info(f'Написал пользователь {message.from_user.username}')
+            # Переход в меню ученика
+            student_menu(message)
+    except Exception as e:
+        logger.error(e)
 
 
+# Изменение уровня подписки от наличия юзера в группе или на канале
+@bot.chat_member_handler(func= lambda upd: upd)
+def podpiska(update: types.ChatMemberUpdated):
+    logger.debug(update)
+    with conn:
+        try:
+            user = User.get_or_none(user_id= update.new_chat_member.user.id)
+            if not user:
+                pass
+            elif update.chat.id == os.getenv("NO_STUFFY_COURSE") and update.new_chat_member.status == "member":
+                user.if_get_course = 2
+            elif update.chat.id == os.getenv("STUFFY_COURSE") and update.new_chat_member.status == "member":
+                user.if_get_course = 1
+            else:
+                user.if_get_course = 0
+            user.save()
+        except Exception as e:
+            logger.error(e)
+            user.if_get_course = 0
+        user.save()
+
+@logger.catch()
 @bot.callback_query_handler(func=lambda callback: callback.data)
 def check_callback_data(callback: types.CallbackQuery):
     """Обработчик callback-запросов от Inline-кнопок"""
@@ -78,6 +102,15 @@ def check_callback_data(callback: types.CallbackQuery):
 
     # Вывод текста callback-запроса в лог
     logger.info(callback.data)
+
+    with conn:
+        user = User.get_or_none(User.user_id == callback.message.chat.id)
+        # Возвращает данные о пользователе или None, если записи нет
+    if not user:  # Если записи нет -> регистрация
+        bot.send_message(
+            chat_id=callback.message.chat.id,
+            text="Ой, я тебя чуток забыл, айда познакомимся снова")
+        start(callback.message)
 
     # Проверка по 1 части запроса
     match callback.data.split(",")[0]:
@@ -257,7 +290,7 @@ def teacher_menu(message: types.Message):
             message_id=message.message_id,
             reply_markup=kb)
     except Exception as e:
-        print("teacher_menu", e)
+        logger.error(e)
         bot.send_message(message.chat.id, f"Что сделаем?", reply_markup=kb)
 
 
@@ -830,9 +863,10 @@ def student_menu(message: types.Message):
             message_id=message.message_id,
             reply_markup=kb,
         )
-    except:
+    except Exception as e:
+        logger.error(e)
         bot.send_message(message.chat.id, f"Что сделаем, {user.name}?", reply_markup=kb)
-    # Финиш
+
 
 
 # Меню профиля пользователя
