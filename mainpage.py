@@ -14,10 +14,13 @@ bot = telebot.TeleBot(os.getenv("TOKEN"))  # Создаём объект бот�
 
 def is_admin(message: types.Message) -> bool:
     """Проверка пользователя на админа"""
-    b = str(message.chat.id) in os.getenv("ADMINS").split(
-        sep=",")  # Сравнивает telegram_id чата с telegram_id админов в файле .env
-    logger.info(f"is admin checking: {b}")  # Вывод информации о результатах проверки: True - админ, False - нет
-    return b  # Возвращет bool объект
+    # Сравнивает telegram_id чата с telegram_id админов в файле .env
+    b = str(message.chat.id) in os.getenv("ADMINS").split(sep=",")
+    # Вывод информации о результатах проверки: True - админ, False - нет
+    logger.info(f"is admin checking: {b}")
+    # Возвращет bool объект
+    return b
+
 
 
 def on_starting():
@@ -36,16 +39,10 @@ def start(message: types.Message):
         kb = types.InlineKeyboardMarkup()
 
         # Создание объекта класса User
-        user, created = User.get_or_create(user_id=message.chat.id, defaults={"user_id": message.chat.id})
-
-        # Если админ
-        if is_admin(message):
-            logger.info('Написал админ')  # Вывод инфы в лог
-            # TODO: Сделать отдельное меню для админов, со своими функциями
-            teacher_menu(message)  # Переход в меню для учителя
+        user = User.get_or_none(user_id=message.chat.id)
 
         # Если новый пользователь
-        elif not user.name:
+        if not user:
             # Вывод инфы в лог
             logger.info(f'Написал новый пользователь {message.from_user.username} {message.chat.id}')
 
@@ -60,6 +57,11 @@ def start(message: types.Message):
                 text="""Привет, я тот самый бот душнила, помогу тебе сдать экзамен на максимум!
                 \n Давай подпишемся на канал неДУШНАЯ математика и продолжим регистрацию""",
                 reply_markup=kb)
+        # Если админ
+        elif is_admin(message):
+            logger.info('Написал админ')  # Вывод инфы в лог
+            # TODO: Сделать отдельное меню для админов, со своими функциями
+            teacher_menu(message)  # Переход в меню для учителя
 
         # Если юзер уже зарегистрирован
         else:
@@ -67,32 +69,34 @@ def start(message: types.Message):
             logger.info(f'Написал пользователь {message.from_user.username}')
             # Переход в меню ученика
             student_menu(message)
+
     except Exception as e:
         logger.error(e)
 
 
 # Изменение уровня подписки от наличия юзера в группе или на канале
 @bot.chat_member_handler(func= lambda upd: upd)
-def podpiska(update: types.ChatMemberUpdated):
+def course_level(update: types.ChatMemberUpdated):
     logger.debug(update)
     with conn:
+        user = User.get_or_none(user_id=update.new_chat_member.user.id)
         try:
-            user = User.get_or_none(user_id= update.new_chat_member.user.id)
+            logger.debug(user.if_get_course)
             if not user:
                 pass
-            elif update.chat.id == os.getenv("NO_STUFFY_COURSE") and update.new_chat_member.status == "member":
+            elif update.chat.id == int(os.getenv("NO_STUFFY_COURSE")) and update.new_chat_member.status == "member":
                 user.if_get_course = 2
-            elif update.chat.id == os.getenv("STUFFY_COURSE") and update.new_chat_member.status == "member":
+            elif update.chat.id == int(os.getenv("STUFFY_COURSE")) and update.new_chat_member.status == "member":
                 user.if_get_course = 1
             else:
                 user.if_get_course = 0
             user.save()
+            logger.debug(user.if_get_course)
         except Exception as e:
             logger.error(e)
             user.if_get_course = 0
         user.save()
 
-@logger.catch()
 @bot.callback_query_handler(func=lambda callback: callback.data)
 def check_callback_data(callback: types.CallbackQuery):
     """Обработчик callback-запросов от Inline-кнопок"""
@@ -118,6 +122,10 @@ def check_callback_data(callback: types.CallbackQuery):
         # Меню для учителя
         case "teacher menu":
             teacher_menu(message=callback.message)
+
+        # Меню для учителя
+        case "update theory":
+            theory_menu(message=callback.message)
 
         # Меню добавления упражнения
         case "new exercise":
@@ -191,9 +199,7 @@ def check_callback_data(callback: types.CallbackQuery):
         case 'exercise to':
             num = int(callback.data.split(",")[1])  # Задание для решения
             page = int(callback.data.split(",")[2])  # Страница для перехода
-            exercise_menu(message=callback.message,
-                          page=page,
-                          num=num)
+            exercise_menu(message=callback.message, page=page, num=num)
 
         # Меню тестов
         case "do test":
@@ -275,12 +281,14 @@ def teacher_menu(message: types.Message):
     btn7 = types.InlineKeyboardButton("Статистика учеников", callback_data="students` statistic")
     btn8 = types.InlineKeyboardButton("Рассылка курсовикам", callback_data="sender")
     btn9 = types.InlineKeyboardButton("Просмотреть меню для учеников", callback_data="student menu")
+    btn10 = types.InlineKeyboardButton("Добавить теорию", callback_data="update theory")
+
     # Добавление кнопок в клавиатуру
     kb.add(btn7)
     kb.row(btn1, btn2)
     kb.row(btn3, btn4)
     kb.row(btn5, btn6)
-    kb.add(btn8, btn9)
+    kb.add(btn8, btn9,btn10)
 
     # Вывод меню
     try:
@@ -292,6 +300,33 @@ def teacher_menu(message: types.Message):
     except Exception as e:
         logger.error(e)
         bot.send_message(message.chat.id, f"Что сделаем?", reply_markup=kb)
+
+def theory_menu(message: types.Message):
+    theory_file = Theory()
+    def get_type(message: types.Message):
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, input_field_placeholder="ГЕОМ или АЛГЕБРА")
+        kb.add(types.KeyboardButton("ГЕОМ"))
+        kb.add(types.KeyboardButton("АЛГЕБРА"))
+
+        sent = bot.send_message(message.chat.id,
+                                text="ГЕОМ или АЛГЕБРА?",
+                                reply_markup=kb)
+        bot.register_next_step_handler(sent,get_file)
+
+    def get_file(message: types.Message):
+        nonlocal theory_file
+        theory_file.t_type = message.text
+        sent = bot.send_message(message.chat.id,
+                                text="Пришли файл",
+                                reply_markup=types.ReplyKeyboardRemove())
+        bot.register_next_step_handler(sent, finish)
+
+    def finish(message: types.Message):
+        nonlocal theory_file
+        theory_file.file_id = message.document.file_id
+        bot.send_message(message.chat.id, text="Успех, нажми на /start чтобы перейти в меню")
+
+    get_type(message=message)
 
 
 # Добавление задачи в банк
@@ -1519,4 +1554,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    bot.polling(non_stop=True)
+    bot.infinity_polling(allowed_updates=telebot.util.update_types)

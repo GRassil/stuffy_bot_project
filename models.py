@@ -35,6 +35,9 @@ class User(BaseModel):
     total_points = IntegerField(default=0, null=True)
     max_points_per_test = IntegerField(default=0, null=True)
 
+class Theory(BaseModel):
+    t_type = TextField()
+    file_id = TextField()
 
 # Модель упражнения
 class Exercise(BaseModel):
@@ -104,19 +107,20 @@ def on_start():
                 UserTestResult,
                 UserHomeworkResult,
                 Homework,
+                Theory
             ]
         )
 
         exams = [
             {
                 "exam_type": "ПРОФИЛЬ",
-                "number_of_questions": 18,
+                "number_of_questions": 19,
                 "max_points": 31,
-                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 2 3 2 2 3 4 4",
+                "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 1 2 3 2 2 3 4 4",
             },
             {
                 "exam_type": "БАЗА",
-                "number_of_questions": 18,
+                "number_of_questions": 21,
                 "max_points": 21,
                 "max_points_for_every_question": "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
             },
@@ -133,8 +137,5 @@ def on_start():
             pass
 
 if __name__ == "__main__":
-    with conn:
-        conn.create_tables(
-            [ExamType, User, Exercise, Test, UserTestResult, UserHomeworkResult]
-        )
+    on_start()
     # Не забываем закрыть соединение с базой данных
