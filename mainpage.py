@@ -105,7 +105,7 @@ def check_callback_data(callback: types.CallbackQuery):
     bot.clear_step_handler_by_chat_id(chat_id=callback.message.chat.id)
 
     # Вывод текста callback-запроса в лог
-    logger.info(callback.data)
+    logger.info(callback.data, callback.from_user.id)
 
     with conn:
         user = User.get_or_none(User.user_id == callback.message.chat.id)
@@ -259,7 +259,7 @@ def check_callback_data(callback: types.CallbackQuery):
                                mode="support")
         # Меню с теорией
         case "theory":
-            no_function(callback=callback)
+            theory(message=callback.message)
 
 
 """Часть для учителя и админов"""
@@ -1112,7 +1112,7 @@ def submit_test_answers(message: types.Message, test_id: int):
             user_test.result_1part = " ".join(k)  # Сохранение строки с результатом проверки в БД
             user_test.points_of_1_part = k.count("✅")  # Сохранение количества набранных баллов за 1 часть
 
-            if user.if_get_course == 0:
+            if user.if_get_course in (0,1):
                 aprove_answers(message)
             else:
                 submit_2part_answers(message)
@@ -1525,6 +1525,17 @@ def message_admin_menu(message: types.Message, mode):
         )
 
     get_msg(message)
+
+def theory(message:types.Message):
+    files_with_theory = [i for i in Theory.select().execute()]
+    if files_with_theory == []:
+        bot.send_message(chat_id=message.chat.id,
+                         text="Теория пока не добавлена")
+    else:
+        for i in files_with_theory:
+            bot.send_document(chat_id=message.chat.id,
+                              document=i.file_id,
+                              caption=i.t_type)
 
 
 def no_function(callback: types.CallbackQuery):
