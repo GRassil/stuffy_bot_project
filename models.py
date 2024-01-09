@@ -7,7 +7,6 @@ conn = SqliteDatabase("data.db")
 
 """ТУТ КОД НАШИХ МОДЕЛЕЙ"""
 
-
 # Определяем базовую модель о которой будут наследоваться остальные
 class BaseModel(Model):
     class Meta:
@@ -35,6 +34,15 @@ class User(BaseModel):
     total_points = IntegerField(default=0, null=True)
     max_points_per_test = IntegerField(default=0, null=True)
 
+    def view(self):
+        return {
+            "user_id": self.user_id,
+            "name":self.name,
+            "lastname":self.lastname,
+            "exam_type":self.exam_type,
+            "if_get_course":self.if_get_course,
+        }
+
 class Theory(BaseModel):
     t_type = TextField()
     file_id = TextField()
@@ -59,6 +67,7 @@ class Homework(BaseModel):
     right_answers = TextField(null=True)
     total_attempts = IntegerField(default=0, null=True)
     right_attempts = IntegerField(default=0, null=True)
+    description = TextField(null=True)
 
 
 # Модель варианта
